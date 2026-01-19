@@ -29,10 +29,17 @@ import {
   Edit2,
   Trash2,
   Phone,
-  Mail
+  Mail,
+  CheckCircle
 } from 'lucide-react';
 import { ShipmentBid, BidStatus, VehicleType, LoadType, Notification, User, UserRole, Lane, Vendor } from '../src/types';
 import { FirebaseService } from '../src/services/firebaseService';
+import { 
+  generateLaneCode, 
+  validateLaneOriginDestination, 
+  laneExists,
+  normalizeCityName
+} from '../src/hooks/useLaneMatching';
 import { INITIAL_LANES, MOCK_USERS } from '../mockData';
 
 interface AdminDashboardProps {
@@ -67,7 +74,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Master Data States
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [lanes, setLanes] = useState<Lane[]>(INITIAL_LANES);
+  const [lanes, setLanes] = useState<Lane[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
 
@@ -83,8 +90,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
   const [vendorErrors, setVendorErrors] = useState<Record<string, string>>({});
 
-  // Form States for Masters
-  const [newLane, setNewLane] = useState({ origin: '', destination: '' });
+  // Lane Form States
+  const [editingLaneId, setEditingLaneId] = useState<string | null>(null);
+  const [deleteLaneConfirmId, setDeleteLaneConfirmId] = useState<string | null>(null);
+  const [laneErrors, setLaneErrors] = useState<Record<string, string>>({});
+  const [newLane, setNewLane] = useState({
+    origin: '',
+    destination: ''
+  });
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -100,6 +113,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setLoading(false);
     };
     loadVendors();
+  }, []);
+
+  // Load lanes from Firebase
+  useEffect(() => {
+    const loadLanes = async () => {
+      const lanesList = await FirebaseService.getAllLanes(true);
+      setLanes(lanesList);
+    };
+    loadLanes();
   }, []);
 
   const [expandedSections, setExpandedSections] = useState({
@@ -347,17 +369,101 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setVendorErrors({});
   };
 
-  const handleAddLane = (e: React.FormEvent) => {
+  const handleAddLane = async (e: React.FormEvent) => {
     e.preventDefault();
-    const lane: Lane = {
-      id: `L-${Date.now()}`,
-      name: `${newLane.origin.toUpperCase()}-${newLane.destination.toUpperCase()}`,
-      origin: newLane.origin,
-      destination: newLane.destination
-    };
-    setLanes([...lanes, lane]);
-    setNewLane({ origin: '', destination: '' });
+    setLaneErrors({});
+
+    // Validate origin and destination are different
+    if (!validateLaneOriginDestination(newLane.origin, newLane.destination)) {
+      setLaneErrors({ destination: 'Origin and destination must be different' });
+      return;
+    }
+
+    // Check for duplicate lanes (case-insensitive)
+    if (laneExists(lanes, newLane.origin, newLane.destination)) {
+      setLaneErrors({ destination: 'This lane already exists' });
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      let savedLane: Lane;
+
+      if (editingLaneId) {
+        // Update existing lane
+        const laneToUpdate = lanes.find(l => l.id === editingLaneId);
+        if (laneToUpdate) {
+          const updatedLane = {
+            ...laneToUpdate,
+            origin: normalizeCityName(newLane.origin),
+            destination: normalizeCityName(newLane.destination),
+            name: `${normalizeCityName(newLane.origin)}-${normalizeCityName(newLane.destination)}`,
+            code: generateLaneCode(newLane.origin, newLane.destination),
+            updatedAt: new Date().toISOString()
+          };
+          await FirebaseService.updateLane(editingLaneId, updatedLane);
+          savedLane = updatedLane;
+        }
+      } else {
+        // Create new lane
+        const newLaneData: Omit<Lane, 'id'> = {
+          name: `${normalizeCityName(newLane.origin)}-${normalizeCityName(newLane.destination)}`,
+          origin: normalizeCityName(newLane.origin),
+          destination: normalizeCityName(newLane.destination),
+          code: generateLaneCode(newLane.origin, newLane.destination),
+          isActive: true,
+          createdAt: new Date().toISOString()
+        };
+        const result = await FirebaseService.createLane(newLaneData);
+        savedLane = result;
+      }
+
+      // Update local state
+      if (editingLaneId) {
+        setLanes(lanes.map(l => l.id === editingLaneId ? savedLane : l));
+        setEditingLaneId(null);
+      } else {
+        setLanes([...lanes, savedLane]);
+      }
+
+      // Reset form
+      setNewLane({ origin: '', destination: '' });
+      setIsLaneModalOpen(false);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save lane';
+      setLaneErrors({ form: errorMessage });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditLane = (lane: Lane) => {
+    setEditingLaneId(lane.id);
+    setNewLane({ origin: lane.origin, destination: lane.destination });
+    setLaneErrors({});
+    setIsLaneModalOpen(true);
+  };
+
+  const handleDeleteLane = async (laneId: string) => {
+    try {
+      setLoading(true);
+      await FirebaseService.deleteLane(laneId);
+      setLanes(lanes.filter(l => l.id !== laneId));
+      setDeleteLaneConfirmId(null);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete lane';
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelLaneEdit = () => {
     setIsLaneModalOpen(false);
+    setEditingLaneId(null);
+    setNewLane({ origin: '', destination: '' });
+    setLaneErrors({});
   };
 
   const getStatusColor = (status: string) => {
@@ -688,42 +794,111 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <p className="text-sm text-slate-500">Define operational routes and review vendor availability.</p>
             </div>
             <button 
-              onClick={() => setIsLaneModalOpen(true)}
+              onClick={() => {
+                setEditingLaneId(null);
+                setNewLane({ origin: '', destination: '' });
+                setLaneErrors({});
+                setIsLaneModalOpen(true);
+              }}
               className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center space-x-2 transition-all font-bold shadow-lg shadow-blue-50"
             >
               <Plus className="w-5 h-5" />
               <span>Add New Lane</span>
             </button>
           </div>
-          <div className="p-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {lanes.map(lane => {
-              const assignedVendors = vendors.filter(v => v.lanes?.includes(lane.name));
-              return (
-                <div key={lane.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-6 hover:shadow-md transition-all group">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-[10px] text-blue-500 font-black uppercase tracking-widest">{lane.id}</span>
-                    <Route className="w-5 h-5 text-slate-300 group-hover:text-blue-500 transition-colors" />
-                  </div>
-                  <h4 className="text-lg font-bold text-slate-800 flex items-center mb-6">
-                    {lane.origin} <ArrowRight className="w-3 h-3 mx-3 text-slate-300" /> {lane.destination}
-                  </h4>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500 font-medium">Operating Vendors</span>
-                      <span className="font-bold text-slate-800">{assignedVendors.length}</span>
-                    </div>
-                    <div className="flex -space-x-2 overflow-hidden">
-                      {assignedVendors.map(v => (
-                        <div key={v.id} title={v.name} className="inline-block h-8 w-8 rounded-full ring-2 ring-white bg-blue-500 flex items-center justify-center text-[10px] text-white font-bold uppercase">
-                          {v.name.charAt(0)}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+
+          {lanes.length === 0 ? (
+            <div className="p-8 text-center">
+              <Route className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-500 font-medium">No lanes defined yet</p>
+              <p className="text-sm text-slate-400 mb-4">Create your first lane to get started</p>
+            </div>
+          ) : (
+            <div className="p-8 overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="text-left py-3 px-4 text-xs font-bold text-slate-600 uppercase">Route</th>
+                    <th className="text-left py-3 px-4 text-xs font-bold text-slate-600 uppercase">Code</th>
+                    <th className="text-left py-3 px-4 text-xs font-bold text-slate-600 uppercase">Vendors</th>
+                    <th className="text-left py-3 px-4 text-xs font-bold text-slate-600 uppercase">Status</th>
+                    <th className="text-center py-3 px-4 text-xs font-bold text-slate-600 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lanes.map(lane => {
+                    const assignedVendors = vendors.filter(v => v.lanes?.includes(lane.id));
+                    return (
+                      <tr key={lane.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-slate-800">
+                            {lane.origin} <span className="text-slate-400 text-sm">→</span> {lane.destination}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">{lane.name}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-block bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{lane.code}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center space-x-1">
+                            {assignedVendors.length > 0 ? (
+                              <>
+                                <span className="font-semibold text-slate-800">{assignedVendors.length}</span>
+                                <div className="flex -space-x-2">
+                                  {assignedVendors.slice(0, 3).map(v => (
+                                    <div key={v.id} title={v.name} className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-blue-500 flex items-center justify-center text-[9px] text-white font-bold uppercase">
+                                      {v.name.charAt(0)}
+                                    </div>
+                                  ))}
+                                  {assignedVendors.length > 3 && (
+                                    <div className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-slate-300 flex items-center justify-center text-[9px] text-white font-bold">
+                                      +{assignedVendors.length - 3}
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            ) : (
+                              <span className="text-slate-400 text-sm">No vendors</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {lane.isActive ? (
+                            <span className="inline-flex items-center space-x-1 text-green-700 bg-green-50 px-3 py-1 rounded-full text-xs font-bold">
+                              <CheckCircle className="w-3 h-3" />
+                              <span>Active</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center space-x-1 text-slate-500 bg-slate-50 px-3 py-1 rounded-full text-xs font-bold">
+                              <span>Inactive</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center justify-center space-x-2">
+                            <button
+                              onClick={() => handleEditLane(lane)}
+                              className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600 hover:text-blue-700"
+                              title="Edit lane"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteLaneConfirmId(lane.id)}
+                              className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600 hover:text-red-700"
+                              title="Delete lane"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -1021,21 +1196,99 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {isLaneModalOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col p-8">
-            <h3 className="text-xl font-bold text-slate-800 mb-6">Define New Route</h3>
+            <h3 className="text-xl font-bold text-slate-800 mb-6">{editingLaneId ? 'Edit Route' : 'Define New Route'}</h3>
+            
+            {laneErrors.form && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+                <span className="text-sm text-red-600">{laneErrors.form}</span>
+              </div>
+            )}
+
             <form onSubmit={handleAddLane} className="space-y-6">
               <div className="space-y-1">
                 <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Origin City</label>
-                <input required className={boxInputClasses} value={newLane.origin} onChange={e => setNewLane({...newLane, origin: e.target.value})} placeholder="e.g. Hyderabad" />
+                <input 
+                  required 
+                  className={`${boxInputClasses} ${laneErrors.origin ? 'border-red-500' : ''}`}
+                  value={newLane.origin} 
+                  onChange={e => {
+                    setNewLane({...newLane, origin: e.target.value});
+                    if (laneErrors.origin) setLaneErrors({...laneErrors, origin: ''});
+                  }} 
+                  placeholder="e.g. Hyderabad"
+                  disabled={loading}
+                />
+                {laneErrors.origin && <p className="text-xs text-red-500 mt-1">{laneErrors.origin}</p>}
               </div>
+
               <div className="space-y-1">
                 <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Destination City</label>
-                <input required className={boxInputClasses} value={newLane.destination} onChange={e => setNewLane({...newLane, destination: e.target.value})} placeholder="e.g. Pune" />
+                <input 
+                  required 
+                  className={`${boxInputClasses} ${laneErrors.destination ? 'border-red-500' : ''}`}
+                  value={newLane.destination} 
+                  onChange={e => {
+                    setNewLane({...newLane, destination: e.target.value});
+                    if (laneErrors.destination) setLaneErrors({...laneErrors, destination: ''});
+                  }} 
+                  placeholder="e.g. Pune"
+                  disabled={loading}
+                />
+                {laneErrors.destination && <p className="text-xs text-red-500 mt-1">{laneErrors.destination}</p>}
               </div>
+
               <div className="flex space-x-3 pt-4">
-                <button type="submit" className="flex-grow bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-50">Register Lane</button>
-                <button type="button" onClick={() => setIsLaneModalOpen(false)} className="bg-slate-100 text-slate-600 px-6 rounded-xl font-bold">Cancel</button>
+                <button 
+                  type="submit" 
+                  disabled={loading}
+                  className="flex-grow bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-50 transition-all"
+                >
+                  {loading ? 'Saving...' : (editingLaneId ? 'Update Lane' : 'Register Lane')}
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleCancelLaneEdit}
+                  disabled={loading}
+                  className="bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-600 px-6 rounded-xl font-bold transition-all"
+                >
+                  Cancel
+                </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lane Delete Confirmation Modal */}
+      {deleteLaneConfirmId && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-8">
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 text-center mb-2">Delete Lane?</h3>
+            <p className="text-slate-600 text-center mb-6">
+              This lane will be marked as inactive. Vendors assigned to this lane will no longer see shipments for this route.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setDeleteLaneConfirmId(null)}
+                disabled={loading}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 text-slate-600 py-3 rounded-xl font-bold transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteLane(deleteLaneConfirmId)}
+                disabled={loading}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white py-3 rounded-xl font-bold transition-all"
+              >
+                {loading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}

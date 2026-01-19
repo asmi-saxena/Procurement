@@ -45,6 +45,10 @@ export interface Lane {
   name: string; // e.g., "DELHI-MUMBAI"
   origin: string;
   destination: string;
+  code: string; // e.g., "DEL-PUN"
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface BidOffer {

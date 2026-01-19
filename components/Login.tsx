@@ -2,7 +2,7 @@
 import React from 'react';
 import { Infinity, ShieldCheck, TruckIcon } from 'lucide-react';
 import { MOCK_USERS } from '../mockData';
-import { User, UserRole } from '../src/types';
+import { User, UserRole } from '../types';
 
 interface LoginProps {
   onLogin: (user: User) => void;

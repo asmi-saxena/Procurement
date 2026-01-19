@@ -58,6 +58,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [counterAmount, setCounterAmount] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [now, setNow] = useState(new Date());
+  const [bidValidationError, setBidValidationError] = useState<string>('');
 
   // Master Data States (Demo purposes)
   const [vendors, setVendors] = useState<User[]>(MOCK_USERS.filter(u => u.role === UserRole.VENDOR));
@@ -139,8 +140,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const validateBidTimings = (): boolean => {
+    const startDateTime = new Date(`${newBid.bidStartDate}T${newBid.bidStartTime}`);
+    const endDateTime = new Date(`${newBid.bidEndDate}T${newBid.bidEndTime}`);
+    
+    if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+      setBidValidationError('Please enter valid date and time values.');
+      return false;
+    }
+    
+    if (startDateTime >= endDateTime) {
+      setBidValidationError('Bid Start Date/Time must be earlier than Bid End Date/Time.');
+      return false;
+    }
+    
+    setBidValidationError('');
+    return true;
+  };
+
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateBidTimings()) {
+      return;
+    }
+    
     const processedBid = {
       ...newBid,
       origin: newBid.pickupCity || newBid.pickupLocation || 'Unknown',
@@ -538,11 +562,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {expandedSections.auction ? <ChevronUp className="w-4 h-4 text-slate-400"/> : <ChevronDown className="w-4 h-4 text-slate-400"/>}
                 </button>
                 {expandedSections.auction && (
-                  <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
-                    <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Ceiling Rate *</label><input type="number" className={boxInputClasses} value={newBid.ceilingRate} onChange={e => setNewBid({...newBid, ceilingRate: parseInt(e.target.value) || 0})} /></div>
-                    <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Step Value *</label><div className="flex items-center border border-blue-500 px-3 py-2 rounded bg-white"><input type="number" className="w-full text-sm text-slate-900 font-medium outline-none bg-transparent" value={newBid.stepValue} onChange={e => setNewBid({...newBid, stepValue: parseInt(e.target.value) || 0})} /></div></div>
-                    <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Bid End Date *</label><input type="date" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidEndDate} onChange={e => setNewBid({...newBid, bidEndDate: e.target.value})} /></div>
-                    <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">End Time *</label><input type="time" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidEndTime} onChange={e => setNewBid({...newBid, bidEndTime: e.target.value})} /></div>
+                  <div className="p-6 space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
+                      <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Ceiling Rate *</label><input type="number" className={boxInputClasses} value={newBid.ceilingRate} onChange={e => setNewBid({...newBid, ceilingRate: parseInt(e.target.value) || 0})} /></div>
+                      <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Step Value *</label><div className="flex items-center border border-blue-500 px-3 py-2 rounded bg-white"><input type="number" className="w-full text-sm text-slate-900 font-medium outline-none bg-transparent" value={newBid.stepValue} onChange={e => setNewBid({...newBid, stepValue: parseInt(e.target.value) || 0})} /></div></div>
+                    </div>
+                    <div className="border-t border-slate-100 pt-6">
+                      <h5 className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-4">Bid Schedule</h5>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
+                        <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Bid Start Date *</label><input type="date" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidStartDate} onChange={e => setNewBid({...newBid, bidStartDate: e.target.value})} /></div>
+                        <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Start Time *</label><input type="time" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidStartTime} onChange={e => setNewBid({...newBid, bidStartTime: e.target.value})} /></div>
+                        <div></div>
+                        <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Bid End Date *</label><input type="date" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidEndDate} onChange={e => setNewBid({...newBid, bidEndDate: e.target.value})} /></div>
+                        <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">End Time *</label><input type="time" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidEndTime} onChange={e => setNewBid({...newBid, bidEndTime: e.target.value})} /></div>
+                      </div>
+                    </div>
+                    {bidValidationError && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start space-x-3">
+                        <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-xs font-medium text-red-700">{bidValidationError}</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

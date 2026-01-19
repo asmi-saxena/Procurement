@@ -2,6 +2,7 @@
 import { database } from '../firebase.ts';
 import { ref, set, get, push, update, onValue, off } from 'firebase/database';
 import { DB_PATHS, Bid, Shipment, User } from '../utils/dbStructure';
+import { ShipmentBid, BidStatus, BidOffer, VehicleDetails, Notification } from '../../types';
 
 export class FirebaseService {
   // User operations
@@ -111,5 +112,81 @@ export class FirebaseService {
       console.error('Error creating notification:', error);
       return { success: false, error };
     }
+  }
+
+  // ShipmentBid operations (for the app's current structure)
+  static async createShipmentBid(bidData: Omit<ShipmentBid, 'id' | 'offers' | 'createdAt'>) {
+    try {
+      const newBidRef = push(ref(database, DB_PATHS.BIDS));
+      const bidWithId: ShipmentBid = {
+        ...bidData,
+        id: newBidRef.key!,
+        offers: [],
+        createdAt: new Date().toISOString(),
+        status: BidStatus.OPEN
+      };
+      await set(newBidRef, bidWithId);
+      return { success: true, bidId: newBidRef.key };
+    } catch (error) {
+      console.error('Error creating shipment bid:', error);
+      return { success: false, error };
+    }
+  }
+
+  static async updateShipmentBid(bidId: string, updates: Partial<ShipmentBid>) {
+    try {
+      await update(ref(database, `${DB_PATHS.BIDS}/${bidId}`), updates);
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating shipment bid:', error);
+      return { success: false, error };
+    }
+  }
+
+  static async placeBidOffer(bidId: string, offer: BidOffer) {
+    try {
+      const bidRef = ref(database, `${DB_PATHS.BIDS}/${bidId}`);
+      const snapshot = await get(bidRef);
+      if (snapshot.exists()) {
+        const bid = snapshot.val() as ShipmentBid;
+        const updatedOffers = [...bid.offers, offer].sort((a, b) => a.amount - b.amount);
+        await update(bidRef, { offers: updatedOffers });
+        return { success: true };
+      }
+      return { success: false, error: 'Bid not found' };
+    } catch (error) {
+      console.error('Error placing bid offer:', error);
+      return { success: false, error };
+    }
+  }
+
+  static async submitVehicleDetails(bidId: string, vehicleDetails: VehicleDetails) {
+    try {
+      await update(ref(database, `${DB_PATHS.BIDS}/${bidId}`), { vehicleDetails });
+      return { success: true };
+    } catch (error) {
+      console.error('Error submitting vehicle details:', error);
+      return { success: false, error };
+    }
+  }
+
+  // Real-time listeners for ShipmentBid
+  static listenToShipmentBids(callback: (bids: ShipmentBid[]) => void) {
+    const bidsRef = ref(database, DB_PATHS.BIDS);
+    onValue(bidsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const rawData = snapshot.val();
+        const bids = Object.values(snapshot.val()).map((bid: any) => ({
+          ...bid,
+          offers: bid.offers || [], // Ensure offers is always an array
+          status: bid.status || BidStatus.OPEN,
+          createdAt: bid.createdAt || new Date().toISOString()
+        })) as ShipmentBid[];
+        callback(bids);
+      } else {
+        callback([]);
+      }
+    });
+    return () => off(bidsRef);
   }
 }

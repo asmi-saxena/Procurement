@@ -18,6 +18,61 @@ import {
   AlertCircle,
   Truck
 } from 'lucide-react';
+
+// Error Boundary Component
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    this.setState({
+      error: error,
+      errorInfo: errorInfo
+    });
+    console.error('Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <XCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Something went wrong</h2>
+            <p className="text-slate-600 mb-4">We encountered an error while loading the dashboard. Please try refreshing the page.</p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium"
+            >
+              Refresh Page
+            </button>
+            {process.env.NODE_ENV === 'development' && (
+              <details className="mt-4 text-left">
+                <summary className="cursor-pointer text-sm text-slate-500 hover:text-slate-700">
+                  Error Details (Development)
+                </summary>
+                <pre className="mt-2 text-xs bg-slate-100 p-2 rounded overflow-auto max-h-32">
+                  {this.state.error && this.state.error.toString()}
+                  {this.state.errorInfo.componentStack}
+                </pre>
+              </details>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 import { MOCK_USERS } from './mockData';
 import { 
   User, 
@@ -233,14 +288,16 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main className="flex-grow">
         {currentUser.role === UserRole.ADMIN ? (
-          <AdminDashboard 
-            bids={bids} 
-            onCreateBid={createBid} 
-            onCloseBid={async (id) => await updateBidStatus(id, BidStatus.CLOSED)}
-            onCounter={handleCounterOffer}
-            onFinalize={async (id, vendorId, amount) => await updateBidStatus(id, BidStatus.FINALIZED, { winningVendorId: vendorId, finalAmount: amount })}
-            notifications={notifications.filter(n => n.userId === currentUser.id)}
-          />
+          <ErrorBoundary>
+            <AdminDashboard 
+              bids={bids} 
+              onCreateBid={createBid} 
+              onCloseBid={async (id) => await updateBidStatus(id, BidStatus.CLOSED)}
+              onCounter={handleCounterOffer}
+              onFinalize={async (id, vendorId, amount) => await updateBidStatus(id, BidStatus.FINALIZED, { winningVendorId: vendorId, finalAmount: amount })}
+              notifications={notifications.filter(n => n.userId === currentUser.id)}
+            />
+          </ErrorBoundary>
         ) : (
           <VendorDashboard 
             currentUser={currentUser}

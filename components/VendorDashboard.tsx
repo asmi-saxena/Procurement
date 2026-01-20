@@ -88,6 +88,23 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
     expectedDispatch: ''
   });
 
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getTimeRemaining = (bid: ShipmentBid) => {
+    const end = new Date(`${bid.bidEndDate}T${bid.bidEndTime}`);
+    const diff = end.getTime() - now.getTime();
+    if (diff <= 0) return "Ended";
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const secs = Math.floor((diff % (1000 * 60)) / 1000);
+    return `${hours}h ${mins}m ${secs}s`;
+  };
+
   const matchingBids = useMemo(() => {
     return bids.filter(bid => currentUser.lanes?.includes(bid.lane));
   }, [bids, currentUser.lanes]);
@@ -205,7 +222,7 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Time Remaining</p>
                         <div className="flex items-center space-x-1.5 text-rose-500">
                           <Timer className="w-4 h-4" />
-                          <span className="text-sm font-bold">4h 22m</span>
+                          <span className="text-sm font-bold">{getTimeRemaining(bid)}</span>
                         </div>
                       </div>
                     </div>

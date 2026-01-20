@@ -1,7 +1,7 @@
 // src/hooks/useFirebaseData.ts
 import { useState, useEffect } from 'react';
 import { FirebaseService } from '../services/firebaseService';
-import { ShipmentBid, Shipment } from '../../types';
+import { ShipmentBid, Shipment, User, Lane } from '../../types';
 
 export const useBids = () => {
   const [bids, setBids] = useState<ShipmentBid[]>([]);
@@ -33,4 +33,36 @@ export const useShipments = () => {
   }, []);
 
   return { shipments, loading };
+};
+
+export const useVendors = () => {
+  const [vendors, setVendors] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = FirebaseService.listenToVendors((newVendors) => {
+      setVendors(newVendors);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  return { vendors, loading };
+};
+
+export const useLanes = () => {
+  const [lanes, setLanes] = useState<Lane[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = FirebaseService.listenToLanes((newLanes) => {
+      setLanes(newLanes);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  return { lanes, loading };
 };

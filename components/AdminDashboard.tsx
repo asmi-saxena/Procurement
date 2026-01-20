@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 import { ShipmentBid, BidStatus, VehicleType, LoadType, Notification, User, UserRole, Lane } from '../types';
 import { INITIAL_LANES, MOCK_USERS } from '../mockData';
+import { useVendors, useLanes } from '../src/hooks/useFirebaseData';
+import { FirebaseService } from '../src/services/firebaseService';
 
 interface AdminDashboardProps {
   bids: ShipmentBid[];
@@ -59,9 +61,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [now, setNow] = useState(new Date());
 
-  // Master Data States (Demo purposes)
-  const [vendors, setVendors] = useState<User[]>(MOCK_USERS.filter(u => u.role === UserRole.VENDOR));
-  const [lanes, setLanes] = useState<Lane[]>(INITIAL_LANES);
+  // Use Firebase for vendors and lanes instead of local state
+  const { vendors, loading: vendorsLoading } = useVendors();
+  const { lanes, loading: lanesLoading } = useLanes();
+
+  // Vendor creation state
+  const [vendorCreationStatus, setVendorCreationStatus] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
+  const [editingVendor, setEditingVendor] = useState<User | null>(null);
 
   // Form States for Masters
   const [newVendor, setNewVendor] = useState({ name: '', lanes: [] as string[] });
@@ -112,6 +118,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     vehicleType: VehicleType.TRUCK
   });
 
+  // Computed values for lane-based city selection
+  const pickupCities = useMemo(() => {
+    const uniqueOrigins = [...new Set(lanes.map(lane => lane.origin))];
+    return uniqueOrigins.sort();
+  }, [lanes]);
+
+  const deliveryCities = useMemo(() => {
+    if (!newBid.pickupCity) return [];
+    const availableDestinations = lanes
+      .filter(lane => lane.origin === newBid.pickupCity)
+      .map(lane => lane.destination);
+    return [...new Set(availableDestinations)].sort();
+  }, [lanes, newBid.pickupCity]);
+
   const getBidLifecycleStatus = (bid: ShipmentBid) => {
     if (bid.status === BidStatus.FINALIZED || bid.status === BidStatus.ASSIGNED) return "Completed";
     const start = new Date(`${bid.bidStartDate}T${bid.bidStartTime}`);
@@ -155,30 +175,88 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsModalOpen(false);
   };
 
-  const handleAddVendor = (e: React.FormEvent) => {
+  const handleAddVendor = async (e: React.FormEvent) => {
     e.preventDefault();
-    const vendor: User = {
-      id: `v-${Date.now()}`,
+    setVendorCreationStatus({ loading: true, error: null });
+
+    const vendorData = {
       name: newVendor.name,
       role: UserRole.VENDOR,
       lanes: newVendor.lanes
     };
-    setVendors([...vendors, vendor]);
-    setNewVendor({ name: '', lanes: [] });
-    setIsVendorModalOpen(false);
+
+    try {
+      const result = await FirebaseService.createVendor(vendorData);
+      if (result.success) {
+        setNewVendor({ name: '', lanes: [] });
+        setIsVendorModalOpen(false);
+        setVendorCreationStatus({ loading: false, error: null });
+        // The vendors list will automatically update via the useVendors hook
+      } else {
+        setVendorCreationStatus({ loading: false, error: result.error?.message || 'Failed to create vendor' });
+      }
+    } catch (error) {
+      console.error('Error creating vendor:', error);
+      setVendorCreationStatus({ loading: false, error: 'An unexpected error occurred' });
+    }
   };
 
-  const handleAddLane = (e: React.FormEvent) => {
+  const handleEditVendor = async (e: React.FormEvent) => {
     e.preventDefault();
-    const lane: Lane = {
-      id: `L-${Date.now()}`,
-      name: `${newLane.origin.toUpperCase()}-${newLane.destination.toUpperCase()}`,
+    if (!editingVendor) return;
+
+    setVendorCreationStatus({ loading: true, error: null });
+
+    const updates = {
+      name: newVendor.name,
+      lanes: newVendor.lanes
+    };
+
+    try {
+      const result = await FirebaseService.updateVendor(editingVendor.id, updates);
+      if (result.success) {
+        setNewVendor({ name: '', lanes: [] });
+        setIsVendorModalOpen(false);
+        setEditingVendor(null);
+        setVendorCreationStatus({ loading: false, error: null });
+        // The vendors list will automatically update via the useVendors hook
+      } else {
+        setVendorCreationStatus({ loading: false, error: result.error?.message || 'Failed to update vendor' });
+      }
+    } catch (error) {
+      console.error('Error updating vendor:', error);
+      setVendorCreationStatus({ loading: false, error: 'An unexpected error occurred' });
+    }
+  };
+
+  const handleEditVendorClick = (vendor: User) => {
+    setEditingVendor(vendor);
+    setNewVendor({ name: vendor.name, lanes: vendor.lanes || [] });
+    setIsVendorModalOpen(true);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingVendor(null);
+    setNewVendor({ name: '', lanes: [] });
+    setIsVendorModalOpen(false);
+    setVendorCreationStatus({ loading: false, error: null });
+  };
+
+  const handleAddLane = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const laneData = {
       origin: newLane.origin,
       destination: newLane.destination
     };
-    setLanes([...lanes, lane]);
-    setNewLane({ origin: '', destination: '' });
-    setIsLaneModalOpen(false);
+    
+    const result = await FirebaseService.createLane(laneData);
+    if (result.success) {
+      setNewLane({ origin: '', destination: '' });
+      setIsLaneModalOpen(false);
+    } else {
+      console.error('Failed to create lane:', result.error);
+      // You could add error handling UI here
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -287,7 +365,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   const timer = getTimeRemaining(bid);
                   const isSelected = selectedBid?.id === bid.id;
                   return (
-                    <div key={bid.id} onClick={() => setSelectedBid(bid)} className={`bg-white border p-5 rounded-2xl cursor-pointer transition-all hover:shadow-lg relative overflow-hidden group ${isSelected ? 'border-blue-500 ring-4 ring-blue-50' : 'border-slate-200'}`}>
+                    <div key={`${bid.id}-${now.getTime()}`} onClick={() => setSelectedBid(bid)} className={`bg-white border p-5 rounded-2xl cursor-pointer transition-all hover:shadow-lg relative overflow-hidden group ${isSelected ? 'border-blue-500 ring-4 ring-blue-50' : 'border-slate-200'}`}>
                       <div className={`absolute top-0 left-0 w-1 h-full ${lifecycle === 'In Process' ? 'bg-rose-500' : lifecycle === 'Completed' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
                       <div className="flex justify-between items-start mb-3">
                         <div className="space-y-0.5">
@@ -387,7 +465,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <p className="text-sm text-slate-500">Manage transport partners and their operating lanes.</p>
             </div>
             <button 
-              onClick={() => setIsVendorModalOpen(true)}
+              onClick={() => {
+                setEditingVendor(null);
+                setNewVendor({ name: '', lanes: [] });
+                setIsVendorModalOpen(true);
+              }}
               className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center space-x-2 transition-all font-bold shadow-lg shadow-blue-50"
             >
               <Plus className="w-5 h-5" />
@@ -405,31 +487,64 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {vendors.map(vendor => (
-                  <tr key={vendor.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-8 py-6">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 font-bold">
-                          {vendor.name.charAt(0)}
-                        </div>
-                        <span className="font-bold text-slate-800">{vendor.name}</span>
+                {vendorsLoading ? (
+                  <tr>
+                    <td colSpan={4} className="px-8 py-12 text-center">
+                      <div className="flex items-center justify-center space-x-2">
+                        <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-slate-500 text-sm">Loading vendors...</span>
                       </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex flex-wrap gap-2">
-                        {vendor.lanes?.map(l => (
-                          <span key={l} className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-200">{l}</span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <span className="bg-emerald-100 text-emerald-700 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-tight">Active</span>
-                    </td>
-                    <td className="px-8 py-6">
-                      <button className="text-slate-400 hover:text-slate-600 transition-colors"><Settings className="w-5 h-5" /></button>
                     </td>
                   </tr>
-                ))}
+                ) : vendors.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-8 py-12 text-center">
+                      <div className="text-slate-400">
+                        <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p className="text-sm font-medium">No vendors found</p>
+                        <p className="text-xs text-slate-400 mt-1">Add your first vendor to get started</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  vendors
+                    .filter(vendor => vendor && vendor.name && vendor.name.trim() !== '') // Only show vendors with valid names
+                    .map(vendor => (
+                    <tr key={vendor.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-8 py-6">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 font-bold">
+                            {vendor.name?.charAt(0)?.toUpperCase() || '?'}
+                          </div>
+                          <span className="font-bold text-slate-800">{vendor.name || 'Unnamed Vendor'}</span>
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <div className="flex flex-wrap gap-2">
+                          {vendor.lanes && vendor.lanes.length > 0 ? (
+                            vendor.lanes.map(l => (
+                              <span key={l} className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-200">{l}</span>
+                            ))
+                          ) : (
+                            <span className="text-slate-400 text-[10px] italic">No lanes assigned</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <span className="bg-emerald-100 text-emerald-700 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-tight">Active</span>
+                      </td>
+                      <td className="px-8 py-6">
+                        <button 
+                          onClick={() => handleEditVendorClick(vendor)}
+                          className="text-slate-400 hover:text-blue-600 transition-colors"
+                          title="Edit vendor"
+                        >
+                          <Settings className="w-5 h-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -452,33 +567,78 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
           </div>
           <div className="p-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {lanes.map(lane => {
-              const assignedVendors = vendors.filter(v => v.lanes?.includes(lane.name));
-              return (
-                <div key={lane.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-6 hover:shadow-md transition-all group">
+            {lanesLoading ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="bg-slate-50 border border-slate-100 rounded-2xl p-6 animate-pulse">
                   <div className="flex items-center justify-between mb-4">
-                    <span className="text-[10px] text-blue-500 font-black uppercase tracking-widest">{lane.id}</span>
-                    <Route className="w-5 h-5 text-slate-300 group-hover:text-blue-500 transition-colors" />
+                    <div className="h-3 bg-slate-200 rounded w-12"></div>
+                    <div className="w-5 h-5 bg-slate-200 rounded"></div>
                   </div>
-                  <h4 className="text-lg font-bold text-slate-800 flex items-center mb-6">
-                    {lane.origin} <ArrowRight className="w-3 h-3 mx-3 text-slate-300" /> {lane.destination}
-                  </h4>
+                  <div className="h-6 bg-slate-200 rounded mb-6"></div>
                   <div className="space-y-4">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500 font-medium">Operating Vendors</span>
-                      <span className="font-bold text-slate-800">{assignedVendors.length}</span>
+                    <div className="flex justify-between items-center">
+                      <div className="h-3 bg-slate-200 rounded w-24"></div>
+                      <div className="h-4 bg-slate-200 rounded w-6"></div>
                     </div>
-                    <div className="flex -space-x-2 overflow-hidden">
-                      {assignedVendors.map(v => (
-                        <div key={v.id} title={v.name} className="inline-block h-8 w-8 rounded-full ring-2 ring-white bg-blue-500 flex items-center justify-center text-[10px] text-white font-bold uppercase">
-                          {v.name.charAt(0)}
-                        </div>
-                      ))}
+                    <div className="flex -space-x-2">
+                      <div className="w-8 h-8 bg-slate-200 rounded-full"></div>
+                      <div className="w-8 h-8 bg-slate-200 rounded-full"></div>
                     </div>
                   </div>
                 </div>
-              );
-            })}
+              ))
+            ) : lanes.filter(lane => lane && lane.origin && lane.destination && lane.name).length === 0 ? (
+              <div className="col-span-full text-center py-12">
+                <Route className="w-16 h-16 mx-auto mb-4 text-slate-300" />
+                <h3 className="text-lg font-bold text-slate-600 mb-2">No lanes defined</h3>
+                <p className="text-slate-500 mb-6">Create your first operational route to get started</p>
+                <button 
+                  onClick={() => setIsLaneModalOpen(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-50"
+                >
+                  Add First Lane
+                </button>
+              </div>
+            ) : (
+              lanes
+                .filter(lane => lane && lane.origin && lane.destination && lane.name) // Only show complete lanes
+                .map(lane => {
+                const assignedVendors = vendors.filter(v => v.lanes?.includes(lane.name));
+                return (
+                  <div key={lane.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-6 hover:shadow-md transition-all group">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-[10px] text-blue-500 font-black uppercase tracking-widest">{lane.id?.slice(-6) || 'N/A'}</span>
+                      <Route className="w-5 h-5 text-slate-300 group-hover:text-blue-500 transition-colors" />
+                    </div>
+                    <h4 className="text-lg font-bold text-slate-800 flex items-center mb-6">
+                      {lane.origin || 'Unknown'} <ArrowRight className="w-3 h-3 mx-3 text-slate-300" /> {lane.destination || 'Unknown'}
+                    </h4>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-500 font-medium">Operating Vendors</span>
+                        <span className="font-bold text-slate-800">{assignedVendors.length}</span>
+                      </div>
+                      <div className="flex -space-x-2 overflow-hidden">
+                        {assignedVendors.length > 0 ? (
+                          assignedVendors.slice(0, 3).map(v => (
+                            <div key={v.id} title={v.name} className="inline-block h-8 w-8 rounded-full ring-2 ring-white bg-blue-500 flex items-center justify-center text-[10px] text-white font-bold uppercase">
+                              {v.name?.charAt(0) || '?'}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-[10px] text-slate-400 italic">No vendors assigned</div>
+                        )}
+                        {assignedVendors.length > 3 && (
+                          <div className="inline-block h-8 w-8 rounded-full ring-2 ring-white bg-slate-200 flex items-center justify-center text-[10px] text-slate-600 font-bold">
+                            +{assignedVendors.length - 3}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       )}
@@ -525,9 +685,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
                 {expandedSections.pickup && (
                   <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
-                    <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Pick Up City</label><input className={inputClasses} value={newBid.pickupCity} onChange={e => setNewBid({...newBid, pickupCity: e.target.value})} /></div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Pick Up City</label>
+                      <select 
+                        className={inputClasses} 
+                        value={newBid.pickupCity} 
+                        onChange={e => setNewBid({...newBid, pickupCity: e.target.value, deliveryCity: ''})}
+                      >
+                        <option value="">Select pickup city</option>
+                        {pickupCities.map(city => (
+                          <option key={city} value={city}>{city}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Pick Up Address</label><input className={inputClasses} value={newBid.pickupAddress} onChange={e => setNewBid({...newBid, pickupAddress: e.target.value})} /></div>
-                    <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Delivery City</label><input className={inputClasses} value={newBid.deliveryCity} onChange={e => setNewBid({...newBid, deliveryCity: e.target.value})} /></div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Delivery City</label>
+                      <select 
+                        className={inputClasses} 
+                        value={newBid.deliveryCity} 
+                        onChange={e => setNewBid({...newBid, deliveryCity: e.target.value})}
+                        disabled={!newBid.pickupCity}
+                      >
+                        <option value="">{newBid.pickupCity ? 'Select delivery city' : 'Select pickup city first'}</option>
+                        {deliveryCities.map(city => (
+                          <option key={city} value={city}>{city}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Delivery Address</label><input className={inputClasses} value={newBid.deliveryAddress} onChange={e => setNewBid({...newBid, deliveryAddress: e.target.value})} /></div>
                   </div>
                 )}
@@ -541,6 +726,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
                     <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Ceiling Rate *</label><input type="number" className={boxInputClasses} value={newBid.ceilingRate} onChange={e => setNewBid({...newBid, ceilingRate: parseInt(e.target.value) || 0})} /></div>
                     <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Step Value *</label><div className="flex items-center border border-blue-500 px-3 py-2 rounded bg-white"><input type="number" className="w-full text-sm text-slate-900 font-medium outline-none bg-transparent" value={newBid.stepValue} onChange={e => setNewBid({...newBid, stepValue: parseInt(e.target.value) || 0})} /></div></div>
+                    <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Bid Start Date *</label><input type="date" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidStartDate} onChange={e => setNewBid({...newBid, bidStartDate: e.target.value})} /></div>
+                    <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Start Time *</label><input type="time" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidStartTime} onChange={e => setNewBid({...newBid, bidStartTime: e.target.value})} /></div>
                     <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Bid End Date *</label><input type="date" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidEndDate} onChange={e => setNewBid({...newBid, bidEndDate: e.target.value})} /></div>
                     <div className="space-y-1"><label className="text-xs text-slate-500 font-bold uppercase tracking-tight">End Time *</label><input type="time" className="w-full border-b py-1.5 text-sm text-slate-900 font-medium outline-none" value={newBid.bidEndTime} onChange={e => setNewBid({...newBid, bidEndTime: e.target.value})} /></div>
                   </div>
@@ -559,11 +746,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {isVendorModalOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col p-8">
-            <h3 className="text-xl font-bold text-slate-800 mb-6">Create New Vendor</h3>
-            <form onSubmit={handleAddVendor} className="space-y-6">
+            <h3 className="text-xl font-bold text-slate-800 mb-6">
+              {editingVendor ? 'Edit Vendor' : 'Create New Vendor'}
+            </h3>
+            {vendorCreationStatus.error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+                <p className="text-sm font-medium">{vendorCreationStatus.error}</p>
+              </div>
+            )}
+            <form onSubmit={editingVendor ? handleEditVendor : handleAddVendor} className="space-y-6">
               <div className="space-y-1">
                 <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Vendor Entity Name</label>
-                <input required className={boxInputClasses} value={newVendor.name} onChange={e => setNewVendor({...newVendor, name: e.target.value})} placeholder="e.g. Express Haulers Ltd." />
+                <input required className={boxInputClasses} value={newVendor.name} onChange={e => setNewVendor({...newVendor, name: e.target.value})} placeholder="e.g. Express Haulers Ltd." disabled={vendorCreationStatus.loading} />
               </div>
               <div className="space-y-2">
                 <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">Assign Lanes</label>
@@ -579,7 +773,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             : newVendor.lanes.filter(item => item !== l.name);
                           setNewVendor({...newVendor, lanes: updated});
                         }}
-                        className="w-4 h-4 text-blue-600 rounded" 
+                        className="w-4 h-4 text-blue-600 rounded"
+                        disabled={vendorCreationStatus.loading}
                       />
                       <span className="text-sm font-medium text-slate-700">{l.name}</span>
                     </label>
@@ -587,8 +782,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
               <div className="flex space-x-3 pt-4">
-                <button type="submit" className="flex-grow bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-50">Save Vendor</button>
-                <button type="button" onClick={() => setIsVendorModalOpen(false)} className="bg-slate-100 text-slate-600 px-6 rounded-xl font-bold">Cancel</button>
+                <button type="submit" className="flex-grow bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled={vendorCreationStatus.loading}>
+                  {vendorCreationStatus.loading 
+                    ? (editingVendor ? 'Updating...' : 'Creating...') 
+                    : (editingVendor ? 'Update Vendor' : 'Save Vendor')
+                  }
+                </button>
+                <button type="button" onClick={handleCancelEdit} className="bg-slate-100 text-slate-600 px-6 rounded-xl font-bold" disabled={vendorCreationStatus.loading}>Cancel</button>
               </div>
             </form>
           </div>

@@ -102,16 +102,129 @@ export class FirebaseService {
     return () => off(shipmentsRef);
   }
 
-  // Notification operations
-  static async createNotification(userId: string, notification: any) {
+  // Vendor operations
+  static async createVendor(vendorData: Omit<User, 'id'>) {
     try {
-      const notifRef = push(ref(database, `${DB_PATHS.NOTIFICATIONS}/${userId}`));
-      await set(notifRef, { ...notification, createdAt: Date.now() });
-      return { success: true };
+      const newVendorRef = push(ref(database, DB_PATHS.VENDORS));
+      const vendorWithId = { ...vendorData, id: newVendorRef.key };
+      await set(newVendorRef, vendorWithId);
+      return { success: true, vendorId: newVendorRef.key };
     } catch (error) {
-      console.error('Error creating notification:', error);
+      console.error('Error creating vendor:', error);
       return { success: false, error };
     }
+  }
+
+  static async getVendors() {
+    try {
+      const snapshot = await get(ref(database, DB_PATHS.VENDORS));
+      if (snapshot.exists()) {
+        return Object.values(snapshot.val()) as User[];
+      }
+      return [];
+    } catch (error) {
+      console.error('Error getting vendors:', error);
+      return [];
+    }
+  }
+
+  static async updateVendor(vendorId: string, updates: Partial<User>) {
+    try {
+      await update(ref(database, `${DB_PATHS.VENDORS}/${vendorId}`), updates);
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating vendor:', error);
+      return { success: false, error };
+    }
+  }
+
+  static async deleteVendor(vendorId: string) {
+    try {
+      await set(ref(database, `${DB_PATHS.VENDORS}/${vendorId}`), null);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting vendor:', error);
+      return { success: false, error };
+    }
+  }
+
+  // Lane operations
+  static async createLane(laneData: Omit<Lane, 'id' | 'name'>) {
+    try {
+      const laneName = `${laneData.origin.toUpperCase()}-${laneData.destination.toUpperCase()}`;
+      const newLaneRef = push(ref(database, DB_PATHS.LANES));
+      const laneWithId = { 
+        ...laneData, 
+        id: newLaneRef.key,
+        name: laneName
+      };
+      await set(newLaneRef, laneWithId);
+      return { success: true, laneId: newLaneRef.key };
+    } catch (error) {
+      console.error('Error creating lane:', error);
+      return { success: false, error };
+    }
+  }
+
+  static async getLanes() {
+    try {
+      const snapshot = await get(ref(database, DB_PATHS.LANES));
+      if (snapshot.exists()) {
+        return Object.values(snapshot.val()) as Lane[];
+      }
+      return [];
+    } catch (error) {
+      console.error('Error getting lanes:', error);
+      return [];
+    }
+  }
+
+  static async updateLane(laneId: string, updates: Partial<Lane>) {
+    try {
+      await update(ref(database, `${DB_PATHS.LANES}/${laneId}`), updates);
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating lane:', error);
+      return { success: false, error };
+    }
+  }
+
+  static async deleteLane(laneId: string) {
+    try {
+      await set(ref(database, `${DB_PATHS.LANES}/${laneId}`), null);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting lane:', error);
+      return { success: false, error };
+    }
+  }
+
+  // Real-time listeners for lanes
+  static listenToLanes(callback: (lanes: Lane[]) => void) {
+    const lanesRef = ref(database, DB_PATHS.LANES);
+    onValue(lanesRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const lanes = Object.values(snapshot.val()) as Lane[];
+        callback(lanes);
+      } else {
+        callback([]);
+      }
+    });
+    return () => off(lanesRef);
+  }
+
+  // Real-time listeners for vendors
+  static listenToVendors(callback: (vendors: User[]) => void) {
+    const vendorsRef = ref(database, DB_PATHS.VENDORS);
+    onValue(vendorsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const vendors = Object.values(snapshot.val()) as User[];
+        callback(vendors);
+      } else {
+        callback([]);
+      }
+    });
+    return () => off(vendorsRef);
   }
 
   // ShipmentBid operations (for the app's current structure)
@@ -149,7 +262,8 @@ export class FirebaseService {
       const snapshot = await get(bidRef);
       if (snapshot.exists()) {
         const bid = snapshot.val() as ShipmentBid;
-        const updatedOffers = [...bid.offers, offer].sort((a, b) => a.amount - b.amount);
+        const currentOffers = bid.offers || []; // Ensure offers is always an array
+        const updatedOffers = [...currentOffers, offer].sort((a, b) => a.amount - b.amount);
         await update(bidRef, { offers: updatedOffers });
         return { success: true };
       }

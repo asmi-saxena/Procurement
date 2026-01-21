@@ -6,11 +6,12 @@ import type { User } from '../../../types';
 
 interface AdminAuthProps {
   onLoginSuccess: (admin: User) => void;
+  onBack?: () => void;
 }
 
 type AuthMode = 'login' | 'signup';
 
-const AdminAuth: React.FC<AdminAuthProps> = ({ onLoginSuccess }) => {
+const AdminAuth: React.FC<AdminAuthProps> = ({ onLoginSuccess, onBack }) => {
   const [mode, setMode] = useState<AuthMode>('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -140,7 +141,10 @@ const AdminAuth: React.FC<AdminAuthProps> = ({ onLoginSuccess }) => {
         <div className="bg-white rounded-3xl shadow-2xl p-8 space-y-6">
           {/* Header */}
           <div className="text-center space-y-2">
-            <div className="flex items-center justify-center space-x-3 mb-4">
+            <div 
+              className="flex items-center justify-center space-x-3 mb-4 cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={onBack}
+            >
               <div className="bg-blue-600 p-2 rounded-xl">
                 <Infinity className="w-6 h-6 text-white" />
               </div>

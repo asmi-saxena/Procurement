@@ -169,7 +169,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       origin: newBid.pickupCity || newBid.pickupLocation || 'Unknown',
       destination: newBid.deliveryCity || newBid.deliveryLocation || 'Unknown',
       materialType: newBid.product || 'Goods',
-      lane: `${(newBid.pickupCity || '').toUpperCase()}-${(newBid.deliveryCity || '').toUpperCase()}`,
+      lane: `${(newBid.pickupCity || '').toUpperCase()} - ${(newBid.deliveryCity || '').toUpperCase()}`.trim(),
       deliveryTimeline: 'Standard',
       pickupTime: `${newBid.pickupDate}T10:00:00`,
       endTime: `${newBid.bidEndDate}T${newBid.bidEndTime}:00`,
@@ -449,6 +449,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </div>
                       ) : (<div className="text-center py-6 border border-dashed rounded-2xl"><AlertCircle className="w-6 h-6 text-slate-200 mx-auto mb-2" /><p className="text-[10px] text-slate-400 font-bold uppercase">Awaiting Submissions</p></div>)}
                     </div>
+
+                    {/* Action Buttons */}
+                    {selectedBid && selectedBid.status === BidStatus.OPEN && (selectedBid.offers || []).length > 0 && (
+                      <div className="pt-6 border-t border-slate-50">
+                        <div className="space-y-3">
+                          <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center">
+                            <Settings className="w-3 h-3 mr-1.5" /> Actions
+                          </h5>
+                          <button
+                            onClick={() => {
+                              if (window.confirm('Are you sure you want to close this bid early? This will end the auction immediately.')) {
+                                onCloseBid(selectedBid.id);
+                                setSelectedBid(null);
+                              }
+                            }}
+                            className="w-full bg-rose-600 hover:bg-rose-700 text-white px-4 py-3 rounded-xl font-bold text-sm transition-all shadow-lg shadow-rose-100 flex items-center justify-center space-x-2"
+                          >
+                            <X className="w-4 h-4" />
+                            <span>Close Bid Early</span>
+                          </button>
+                          <p className="text-[9px] text-slate-400 text-center leading-tight">
+                            This will end the auction immediately and finalize with the current best offer.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (

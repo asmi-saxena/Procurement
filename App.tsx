@@ -96,6 +96,19 @@ const App: React.FC = () => {
   const { bids, loading: bidsLoading } = useBids();
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
+  // Load user from localStorage on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem('currentUser');
+    if (savedUser) {
+      try {
+        setCurrentUser(JSON.parse(savedUser));
+      } catch (error) {
+        console.error('Error parsing saved user:', error);
+        localStorage.removeItem('currentUser');
+      }
+    }
+  }, []);
+
   // Simulation of "real-time" clock or bid updates could happen here
   
   const addNotification = (userId: string, title: string, message: string, type: 'info' | 'success' | 'warning' | 'alert' = 'info') => {
@@ -126,7 +139,7 @@ const App: React.FC = () => {
       const bidData = {
         origin: newBidData.origin || '',
         destination: newBidData.destination || '',
-        lane: `${(newBidData.origin || '').toUpperCase()}-${(newBidData.destination || '').toUpperCase()}`,
+        lane: `${(newBidData.origin || '').toUpperCase()} - ${(newBidData.destination || '').toUpperCase()}`.trim(),
         vehicleType: newBidData.vehicleType || VehicleType.TRUCK,
         loadType: newBidData.loadType || LoadType.FTL,
         capacity: newBidData.capacity || '',

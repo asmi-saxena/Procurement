@@ -90,8 +90,13 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
 
   // FIX: Properly memoize matching bids with explicit lane validation
   const matchingBids = useMemo((): ShipmentBid[] => {
+    console.log('=== VendorDashboard Debug ===');
+    console.log('Current User:', currentUser.name, 'Lanes:', currentUser.lanes);
+    console.log('All Bids:', bids.map(b => ({ id: b.id, lane: b.lane, status: b.status })));
+    
     // RUNTIME SAFETY: Handle cases where currentUser.lanes is undefined or empty
     if (!currentUser.lanes || currentUser.lanes.length === 0) {
+      console.log('❌ No lanes assigned to vendor');
       return [];
     }
     
@@ -100,10 +105,14 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
       return [];
     }
     
-    return bids.filter((bid): bid is ShipmentBid => {
-      // RUNTIME SAFETY: Ensure bid.lane exists before comparing
-      return bid?.lane != null && currentUser.lanes!.includes(bid.lane);
+    const filtered = bids.filter((bid): bid is ShipmentBid => {
+      const matches = bid?.lane != null && currentUser.lanes!.includes(bid.lane) && bid.status === BidStatus.OPEN;
+      console.log(`Bid ${bid.id}: lane="${bid.lane}", matches=${matches}`);
+      return matches;
     });
+    
+    console.log('✅ Matching bids:', filtered.length);
+    return filtered;
   }, [bids, currentUser.lanes]);
 
   // FIX: Validate and memoize bid amount to prevent stale closures in event handlers

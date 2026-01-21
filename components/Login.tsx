@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import { Infinity, ShieldCheck, TruckIcon } from 'lucide-react';
 import { MOCK_USERS } from '../mockData';
 import { User, UserRole } from '../types';
-import { useVendors } from '../src/hooks/useFirebaseData';
+import { useVendors } from '../src/hooks/useVendors';
+import { useLanes } from '../src/hooks/useLanes';
 import AdminAuth from '../src/components/admin/AdminAuth';
 
 interface LoginProps {
@@ -13,15 +14,38 @@ interface LoginProps {
 type LoginMode = 'user' | 'admin';
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
-  const { vendors, loading: vendorsLoading } = useVendors();
+  const { vendors: vendorMasters, loading: vendorsLoading } = useVendors();
+  const { lanes } = useLanes();
+  
+  // Convert VendorMaster[] to User[] for compatibility
+  const vendors = vendorMasters.map(vendor => {
+    // Convert lane IDs to lane names
+    const laneNames = vendor.assignedLanes
+      .map(laneId => {
+        const lane = lanes.find(l => l.id === laneId);
+        // Add spaces around the dash to match bid format
+        return lane ? lane.code.replace('-', ' - ') : null;
+      })
+      .filter(Boolean) as string[];
+    
+    return {
+      id: vendor.id,
+      name: vendor.name,
+      role: UserRole.VENDOR,
+      lanes: laneNames
+    };
+  });
   const [loginMode, setLoginMode] = useState<LoginMode>('user');
 
   // If admin auth mode, show admin login/signup
   if (loginMode === 'admin') {
     return (
-      <AdminAuth onLoginSuccess={(admin) => {
-        onLogin(admin);
-      }} />
+      <AdminAuth 
+        onLoginSuccess={(admin) => {
+          onLogin(admin);
+        }}
+        onBack={() => setLoginMode('user')}
+      />
     );
   }
 
@@ -48,6 +72,33 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               <p className="text-blue-200 text-sm">Monthly Shipments</p>
             </div>
           </div>
+
+          {/* Featured Vendors Section */}
+          {!vendorsLoading && vendors.length > 0 && (
+            <div className="pt-6">
+              <h3 className="text-lg font-bold text-white mb-4">Our Transport Partners</h3>
+              <div className="grid grid-cols-1 gap-3">
+                {vendors.slice(0, 3).map(vendor => (
+                  <div key={vendor.id} className="bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/20">
+                    <div className="flex items-center space-x-3">
+                      <div className="bg-white/20 p-2 rounded-lg">
+                        <TruckIcon className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-white text-sm">{vendor.name}</p>
+                        <p className="text-blue-200 text-xs">{vendor.lanes?.length || 0} lanes served</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {vendors.length > 3 && (
+                  <div className="text-center">
+                    <p className="text-blue-200 text-xs">+{vendors.length - 3} more partners</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-3xl shadow-2xl p-8 space-y-8">

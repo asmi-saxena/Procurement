@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
  Plus,
@@ -62,7 +61,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [selectedBid, setSelectedBid] = useState<ShipmentBid | null>(null);
   const [counterAmount, setCounterAmount] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [now, setNow] = useState(new Date());
+  
+  // FIXED: Use timestamp instead of Date object
+  const [now, setNow] = useState(Date.now());
 
   // Use Firebase for vendors and lanes instead of local state
   const { vendors, loading: vendorsLoading } = useVendors();
@@ -77,8 +78,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newLane, setNewLane] = useState({ origin: '', destination: '' });
   const [editingLane, setEditingLane] = useState<Lane | null>(null);
 
+  // FIXED: More efficient timer
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -136,13 +138,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return [...new Set(availableDestinations)].sort();
   }, [lanes, newBid.pickupCity]);
 
+  // FIXED: Better lifecycle status calculation with proper error handling
   const getBidLifecycleStatus = (bid: ShipmentBid) => {
     if (bid.status === BidStatus.FINALIZED || bid.status === BidStatus.ASSIGNED) return "Completed";
-    const start = new Date(`${bid.bidStartDate}T${bid.bidStartTime}`);
-    const end = new Date(`${bid.bidEndDate}T${bid.bidEndTime}`);
-    if (now < start) return "Not Started Yet";
-    if (now >= end || bid.status === BidStatus.CLOSED) return "Completed";
-    return "In Process";
+    
+    try {
+      // Validate required fields
+      if (!bid.bidStartDate || !bid.bidStartTime || !bid.bidEndDate || !bid.bidEndTime) {
+        return "Invalid Date";
+      }
+
+      const start = new Date(`${bid.bidStartDate}T${bid.bidStartTime}`).getTime();
+      const end = new Date(`${bid.bidEndDate}T${bid.bidEndTime}`).getTime();
+      
+      // Check for invalid dates
+      if (isNaN(start) || isNaN(end)) {
+        return "Invalid Date";
+      }
+
+      if (now < start) return "Not Started Yet";
+      if (now >= end || bid.status === BidStatus.CLOSED) return "Completed";
+      return "In Process";
+    } catch (error) {
+      console.error('Error calculating bid lifecycle status:', error);
+      return "Error";
+    }
   };
 
   const handleEditBid = (bid: ShipmentBid) => {
@@ -168,14 +188,44 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // FIXED: Better time remaining calculation with error handling
   const getTimeRemaining = (bid: ShipmentBid) => {
-    const end = new Date(`${bid.bidEndDate}T${bid.bidEndTime}`);
-    const diff = end.getTime() - now.getTime();
-    if (diff <= 0) return "Ended";
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    const secs = Math.floor((diff % (1000 * 60)) / 1000);
-    return `${hours}h ${mins}m ${secs}s`;
+    // Validate required properties
+    if (!bid.bidEndDate || !bid.bidEndTime) {
+      return "No deadline";
+    }
+
+    try {
+      const endTimeString = `${bid.bidEndDate}T${bid.bidEndTime}`;
+      const endTime = new Date(endTimeString).getTime();
+      
+      // Check for invalid date
+      if (isNaN(endTime)) {
+        return "Invalid date";
+      }
+
+      const diff = endTime - now;
+      
+      if (diff <= 0) return "Ended";
+
+      // Calculate time components
+      const totalSeconds = Math.floor(diff / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      // Format based on time remaining
+      if (hours > 24) {
+        const days = Math.floor(hours / 24);
+        const remainingHours = hours % 24;
+        return `${days}d ${remainingHours}h`;
+      }
+      
+      return `${hours}h ${minutes}m ${seconds}s`;
+    } catch (error) {
+      console.error('Error calculating time remaining:', error);
+      return "Error";
+    }
   };
 
   const activeBidsCount = useMemo(() => {
@@ -218,7 +268,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setNewVendor({ name: '', lanes: [] });
         setIsVendorModalOpen(false);
         setVendorCreationStatus({ loading: false, error: null });
-        // The vendors list will automatically update via the useVendors hook
       } else {
         setVendorCreationStatus({ loading: false, error: result.error?.message || 'Failed to create vendor' });
       }
@@ -246,7 +295,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setIsVendorModalOpen(false);
         setEditingVendor(null);
         setVendorCreationStatus({ loading: false, error: null });
-        // The vendors list will automatically update via the useVendors hook
       } else {
         setVendorCreationStatus({ loading: false, error: result.error?.message || 'Failed to update vendor' });
       }
@@ -427,12 +475,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 gap-4' : 'space-y-4'}>
+                {/* FIXED: Added null/undefined checks for bids array */}
                 {(bids || []).map((bid) => {
                   const lifecycle = getBidLifecycleStatus(bid);
                   const timer = getTimeRemaining(bid);
                   const isSelected = selectedBid?.id === bid.id;
+                  // FIXED: Safe access to offers array
+                  const offersCount = (bid.offers || []).length;
+                  const lowestOffer = offersCount > 0 ? bid.offers[0] : null;
+                  
                   return (
-                    <div key={`${bid.id}-${now.getTime()}`} onClick={() => setSelectedBid(bid)} className={`bg-white border p-5 rounded-2xl cursor-pointer transition-all hover:shadow-lg relative overflow-hidden group ${isSelected ? 'border-blue-500 ring-4 ring-blue-50' : 'border-slate-200'}`}>
+                    <div key={`${bid.id}-${now}`} onClick={() => setSelectedBid(bid)} className={`bg-white border p-5 rounded-2xl cursor-pointer transition-all hover:shadow-lg relative overflow-hidden group ${isSelected ? 'border-blue-500 ring-4 ring-blue-50' : 'border-slate-200'}`}>
                       <div className={`absolute top-0 left-0 w-1 h-full ${lifecycle === 'In Process' ? 'bg-rose-500' : lifecycle === 'Completed' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
                       <div className="flex justify-between items-start mb-3">
                         <div className="space-y-0.5">
@@ -443,18 +496,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                       <div className="grid grid-cols-2 gap-3 mb-4">
                         <div className="flex items-center space-x-2 text-slate-500 text-xs"><Truck className="w-3.5 h-3.5" /><span>{bid.vehicleType}</span></div>
-                        <div className="flex items-center space-x-2 text-slate-500 text-xs"><BarChart3 className="w-3.5 h-3.5" /><span>{(bid.offers || []).length} offers</span></div>
+                        <div className="flex items-center space-x-2 text-slate-500 text-xs"><BarChart3 className="w-3.5 h-3.5" /><span>{offersCount} offers</span></div>
                       </div>
                       {lifecycle === "In Process" && (
                         <div className="flex items-center justify-between bg-rose-50 border border-rose-100 rounded-xl px-3 py-2 animate-pulse">
                           <div className="flex items-center space-x-2 text-rose-600"><Timer className="w-4 h-4" /><span className="text-xs font-black tracking-tighter">{timer}</span></div>
-                          {(bid.offers || []).length > 0 && <span className="text-xs font-bold text-rose-800">L1: ₹{bid.offers[0].amount.toLocaleString()}</span>}
+                          {lowestOffer && <span className="text-xs font-bold text-rose-800">L1: ₹{lowestOffer.amount.toLocaleString()}</span>}
                         </div>
                       )}
-                      {lifecycle === "Completed" && (bid.offers || []).length > 0 && (
+                      {lifecycle === "Completed" && lowestOffer && (
                         <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
                           <div className="flex items-center space-x-2 text-emerald-600"><CheckCircle2 className="w-4 h-4" /><span className="text-[10px] font-bold uppercase">Auction Ended</span></div>
-                          <span className="text-xs font-bold text-emerald-800">Final: ₹{bid.offers[0].amount.toLocaleString()}</span>
+                          <span className="text-xs font-bold text-emerald-800">Final: ₹{lowestOffer.amount.toLocaleString()}</span>
                         </div>
                       )}
                       {lifecycle === "Not Started Yet" && (
@@ -507,6 +560,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
                     <div className="pt-6 border-t border-slate-50">
                       <div className="flex justify-between items-center mb-4"><h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center"><History className="w-3 h-3 mr-1.5" /> Bid Ladder</h5><span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">Live</span></div>
+                      {/* FIXED: Safe access to offers */}
                       {selectedBid && (selectedBid.offers || []).length > 0 ? (
                         <div className="space-y-2">
                           {(selectedBid.offers || []).map((offer, idx) => (
@@ -762,7 +816,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             ) : (
               lanes
-                .filter(lane => lane && lane.origin && lane.destination && lane.name) // Only show complete lanes
+                .filter(lane => lane && lane.origin && lane.destination && lane.name)
                 .map(lane => {
                 const assignedVendors = vendors.filter(v => v.lanes?.includes(lane.name));
                 return (
@@ -1041,92 +1095,92 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-    {/* Lane Master Modal */}
-{isLaneModalOpen && (
-  <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-    <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in">
+      {/* Lane Master Modal */}
+      {isLaneModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in">
 
-      {/* Header */}
-      <div className="px-8 pt-8 pb-4 border-b border-slate-100">
-        <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-          {editingLane ? <Edit className="w-5 h-5 text-blue-600" /> : <Plus className="w-5 h-5 text-blue-600" />}
-          {editingLane ? 'Edit Route' : 'Define New Route'}
-        </h3>
-        <p className="text-sm text-slate-500 mt-1">
-          {editingLane ? 'Update lane details for vendor operations' : 'Create a lane for vendor bidding & auctions'}
-        </p>
-      </div>
+            {/* Header */}
+            <div className="px-8 pt-8 pb-4 border-b border-slate-100">
+              <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                {editingLane ? <Edit className="w-5 h-5 text-blue-600" /> : <Plus className="w-5 h-5 text-blue-600" />}
+                {editingLane ? 'Edit Route' : 'Define New Route'}
+              </h3>
+              <p className="text-sm text-slate-500 mt-1">
+                {editingLane ? 'Update lane details for vendor operations' : 'Create a lane for vendor bidding & auctions'}
+              </p>
+            </div>
 
-      {/* Body */}
-      <form onSubmit={editingLane ? handleEditLane : handleAddLane} className="p-8 space-y-6">
+            {/* Body */}
+            <form onSubmit={editingLane ? handleEditLane : handleAddLane} className="p-8 space-y-6">
 
-        {/* Info Alert */}
-        <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-700">
-          <AlertCircle className="w-5 h-5 mt-0.5" />
-          <p>
-            Ensure city names are correct. Once created, lanes are used in live auctions.
-          </p>
-        </div>
+              {/* Info Alert */}
+              <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-700">
+                <AlertCircle className="w-5 h-5 mt-0.5" />
+                <p>
+                  Ensure city names are correct. Once created, lanes are used in live auctions.
+                </p>
+              </div>
 
-        {/* Origin */}
-        <div className="space-y-1">
-          <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">
-            Origin City
-          </label>
-          <div className="relative">
-            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-            <input
-              required
-              value={newLane.origin}
-              onChange={(e) =>
-                setNewLane({ ...newLane, origin: e.target.value })
-              }
-              placeholder="e.g. Hyderabad"
-              className={`${boxInputClasses} pl-10`}
-            />
+              {/* Origin */}
+              <div className="space-y-1">
+                <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">
+                  Origin City
+                </label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                  <input
+                    required
+                    value={newLane.origin}
+                    onChange={(e) =>
+                      setNewLane({ ...newLane, origin: e.target.value })
+                    }
+                    placeholder="e.g. Hyderabad"
+                    className={`${boxInputClasses} pl-10`}
+                  />
+                </div>
+              </div>
+
+              {/* Destination */}
+              <div className="space-y-1">
+                <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">
+                  Destination City
+                </label>
+                <div className="relative">
+                  <ArrowRight className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                  <input
+                    required
+                    value={newLane.destination}
+                    onChange={(e) =>
+                      setNewLane({ ...newLane, destination: e.target.value })
+                    }
+                    placeholder="e.g. Pune"
+                    className={`${boxInputClasses} pl-10`}
+                  />
+                </div>
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-100 transition-all active:scale-[0.98]"
+                >
+                  {editingLane ? 'Update Lane' : 'Register Lane'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelLaneEdit}
+                  className="px-6 rounded-xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-
-        {/* Destination */}
-        <div className="space-y-1">
-          <label className="text-xs text-slate-500 font-bold uppercase tracking-tight">
-            Destination City
-          </label>
-          <div className="relative">
-            <ArrowRight className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-            <input
-              required
-              value={newLane.destination}
-              onChange={(e) =>
-                setNewLane({ ...newLane, destination: e.target.value })
-              }
-              placeholder="e.g. Pune"
-              className={`${boxInputClasses} pl-10`}
-            />
-          </div>
-        </div>
-
-        {/* Footer Buttons */}
-        <div className="flex gap-3 pt-4">
-          <button
-            type="submit"
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-100 transition-all active:scale-[0.98]"
-          >
-            {editingLane ? 'Update Lane' : 'Register Lane'}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleCancelLaneEdit}
-            className="px-6 rounded-xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-)}
+      )}
 
     </div>
   );

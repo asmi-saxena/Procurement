@@ -36,6 +36,8 @@ interface ShipmentBid {
   materialType: string;
   capacity: string;
   pickupTime: number;
+  bidEndDate: string;  // FIXED: Added missing property
+  bidEndTime: string;  // FIXED: Added missing property
   status: BidStatus;
   offers: BidOffer[];
   winningVendorId?: string;
@@ -88,21 +90,56 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
     expectedDispatch: ''
   });
 
-  const [now, setNow] = useState(new Date());
+  const [now, setNow] = useState(Date.now());
 
+  // FIXED: More efficient timer - only updates timestamp, not Date object
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
+  // FIXED: Better implementation with proper error handling
   const getTimeRemaining = (bid: ShipmentBid) => {
-    const end = new Date(`${bid.bidEndDate}T${bid.bidEndTime}`);
-    const diff = end.getTime() - now.getTime();
-    if (diff <= 0) return "Ended";
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    const secs = Math.floor((diff % (1000 * 60)) / 1000);
-    return `${hours}h ${mins}m ${secs}s`;
+    // Validate that bid has the required properties
+    if (!bid.bidEndDate || !bid.bidEndTime) {
+      return "No deadline";
+    }
+
+    try {
+      // Parse the end time
+      const endTimeString = `${bid.bidEndDate}T${bid.bidEndTime}`;
+      const endTime = new Date(endTimeString).getTime();
+      
+      // Check if valid date
+      if (isNaN(endTime)) {
+        return "Invalid date";
+      }
+
+      const diff = endTime - now;
+      
+      // Already ended
+      if (diff <= 0) {
+        return "Ended";
+      }
+
+      // Calculate time components
+      const totalSeconds = Math.floor(diff / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      // Format based on time remaining
+      if (hours > 24) {
+        const days = Math.floor(hours / 24);
+        const remainingHours = hours % 24;
+        return `${days}d ${remainingHours}h`;
+      }
+      
+      return `${hours}h ${minutes}m ${seconds}s`;
+    } catch (error) {
+      console.error('Error calculating time remaining:', error);
+      return "Error";
+    }
   };
 
   const matchingBids = useMemo(() => {

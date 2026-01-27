@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Infinity, 
@@ -98,6 +97,19 @@ const App: React.FC = () => {
   const { bids, loading: bidsLoading } = useBids();
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
+  // Load user from localStorage on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem('currentUser');
+    if (savedUser) {
+      try {
+        setCurrentUser(JSON.parse(savedUser));
+      } catch (error) {
+        console.error('Error parsing saved user:', error);
+        localStorage.removeItem('currentUser');
+      }
+    }
+  }, []);
+
   // Simulation of "real-time" clock or bid updates could happen here
   
   const addNotification = (userId: string, title: string, message: string, type: 'info' | 'success' | 'warning' | 'alert' = 'info') => {
@@ -129,11 +141,15 @@ const App: React.FC = () => {
 
   const createBid = async (newBidData: Partial<ShipmentBid>) => {
     try {
-      // Create the bid data structure for Firebase
+      // Fix the lane creation - remove extra spaces
+      const origin = (newBidData.origin || '').trim().toUpperCase();
+      const destination = (newBidData.destination || '').trim().toUpperCase();
+      const lane = `${origin} - ${destination}`; // Single space on each side
+      
       const bidData = {
         origin: newBidData.origin || '',
         destination: newBidData.destination || '',
-        lane: `${(newBidData.origin || '').toUpperCase()}-${(newBidData.destination || '').toUpperCase()}`,
+        lane: lane, // Use the cleaned lane
         vehicleType: newBidData.vehicleType || VehicleType.TRUCK,
         loadType: newBidData.loadType || LoadType.FTL,
         capacity: newBidData.capacity || '',
@@ -165,8 +181,8 @@ const App: React.FC = () => {
       if (result.success) {
         // Notify matching vendors
         MOCK_USERS.forEach(user => {
-          if (user.role === UserRole.VENDOR && user.lanes?.includes(bidData.lane)) {
-            addNotification(user.id, 'New Bid Opportunity', `New shipment available for lane ${bidData.lane}`, 'warning');
+          if (user.role === UserRole.VENDOR && user.lanes?.includes(lane)) {
+            addNotification(user.id, 'New Bid Opportunity', `New shipment available for lane ${lane}`, 'warning');
           }
         });
       } else {

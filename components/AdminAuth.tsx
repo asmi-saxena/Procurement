@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, Eye, EyeOff, CheckCircle, AlertTriangle } from 'lucide-react';
 import { User, UserRole } from '../types';
 
 interface AdminAuthProps {
   onLogin: (user: User) => void;
 }
+
+type AlertType = 'success' | 'error' | '';
 
 const AdminAuth: React.FC<AdminAuthProps> = ({ onLogin }) => {
   const [email, setEmail] = useState('');
@@ -12,31 +14,34 @@ const AdminAuth: React.FC<AdminAuthProps> = ({ onLogin }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [alertType, setAlertType] = useState<AlertType>('');
 
-  // Simple local storage based auth for admins
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setAlertType('');
     setLoading(true);
 
-    // Simple validation
     if (!email.includes('@') || password.length < 6) {
       setError('Please enter a valid email and password (min 6 characters)');
+      setAlertType('error');
       setLoading(false);
       return;
     }
 
     try {
-      // Check stored credentials
       const stored = localStorage.getItem('admin_credentials');
       if (!stored) {
         setError('No admin account found. Contact system administrator.');
+        setAlertType('error');
         setLoading(false);
         return;
       }
+
       const { email: storedEmail, password: storedPassword } = JSON.parse(stored);
       if (email !== storedEmail || password !== storedPassword) {
-        setError('Invalid credentials');
+        setError('Invalid email or password');
+        setAlertType('error');
         setLoading(false);
         return;
       }
@@ -47,67 +52,111 @@ const AdminAuth: React.FC<AdminAuthProps> = ({ onLogin }) => {
         role: UserRole.ADMIN
       };
 
-      onLogin(adminUser);
-    } catch (err) {
+      setAlertType('success');
+      setError('Login successful. Redirecting…');
+
+      setTimeout(() => {
+        onLogin(adminUser);
+      }, 800);
+    } catch {
       setError('Authentication failed');
+      setAlertType('error');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="bg-blue-100 p-3 rounded-full w-16 h-16 mx-auto mb-4">
-            <ShieldCheck className="w-10 h-10 text-blue-700" />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 p-4">
+      <div className="w-full max-w-md bg-white/95 backdrop-blur rounded-3xl shadow-[0_30px_80px_rgba(0,0,0,0.35)] p-8">
+
+        {/* Header */}
+        <div className="text-center mb-6">
+          <div className="mx-auto mb-4 w-16 h-16 rounded-2xl bg-blue-600/10 flex items-center justify-center">
+            <ShieldCheck className="w-9 h-9 text-blue-700" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-800">Admin Login</h2>
-          <p className="text-slate-500">Sign in to continue</p>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
+            Admin Access
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Authorized personnel only
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
+        {/* ALERT */}
+        {alertType && (
+          <div
+            className={`mb-5 flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium
+              ${
+                alertType === 'success'
+                  ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-red-50 text-red-700 border border-red-200'
+              }`}
+          >
+            {alertType === 'success' ? (
+              <CheckCircle className="w-5 h-5" />
+            ) : (
+              <AlertTriangle className="w-5 h-5" />
+            )}
+            {error}
+          </div>
+        )}
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-5">
+
+          {/* Email */}
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+              Email address
+            </label>
             <input
               type="email"
-              placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-800
+                         focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                         transition"
             />
           </div>
 
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
-              required
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
-            >
-              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-            </button>
-          </div>
-
-          {error && (
-            <div className="text-red-600 text-sm bg-red-50 p-3 rounded-lg">
-              {error}
+          {/* Password */}
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+              Password
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 pr-11 text-slate-800
+                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                           transition"
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 transition"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
             </div>
-          )}
+          </div>
 
+          {/* Submit */}
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-medium disabled:opacity-50"
+            className="w-full rounded-xl bg-blue-600 py-3 font-semibold text-white
+                       hover:bg-blue-700 active:scale-[0.98]
+                       disabled:opacity-60 disabled:cursor-not-allowed
+                       transition-all"
           >
-            {loading ? 'Please wait...' : 'Sign In'}
+            {loading ? 'Authenticating…' : 'Sign in'}
           </button>
         </form>
       </div>

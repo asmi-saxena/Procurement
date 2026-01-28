@@ -75,7 +75,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Form States for Masters
   const [newVendor, setNewVendor] = useState({ name: '', lanes: [] as string[] });
   const [newLane, setNewLane] = useState({ origin: '', destination: '' });
-  const [editingLane, setEditingLane] = useState<Lane | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -282,48 +281,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsLaneModalOpen(false);
     } else {
       console.error('Failed to create lane:', result.error);
+      // You could add error handling UI here
     }
-  };
-
-  const handleEditLane = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingLane) return;
-
-    const updates = {
-      origin: newLane.origin,
-      destination: newLane.destination,
-      name: `${newLane.origin.toUpperCase()}-${newLane.destination.toUpperCase()}`
-    };
-    
-    const result = await FirebaseService.updateLane(editingLane.id, updates);
-    if (result.success) {
-      setNewLane({ origin: '', destination: '' });
-      setEditingLane(null);
-      setIsLaneModalOpen(false);
-    } else {
-      console.error('Failed to update lane:', result.error);
-    }
-  };
-
-  const handleEditLaneClick = (lane: Lane) => {
-    setEditingLane(lane);
-    setNewLane({ origin: lane.origin, destination: lane.destination });
-    setIsLaneModalOpen(true);
-  };
-
-  const handleDeleteLane = async (laneId: string) => {
-    if (confirm('Are you sure you want to delete this lane? This action cannot be undone.')) {
-      const result = await FirebaseService.deleteLane(laneId);
-      if (!result.success) {
-        console.error('Failed to delete lane:', result.error);
-      }
-    }
-  };
-
-  const handleCancelLaneEdit = () => {
-    setEditingLane(null);
-    setNewLane({ origin: '', destination: '' });
-    setIsLaneModalOpen(false);
   };
 
   const getStatusColor = (status: string) => {
@@ -712,11 +671,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <p className="text-sm text-slate-500">Define operational routes and review vendor availability.</p>
             </div>
             <button 
-              onClick={() => {
-                setEditingLane(null);
-                setNewLane({ origin: '', destination: '' });
-                setIsLaneModalOpen(true);
-              }}
+              onClick={() => setIsLaneModalOpen(true)}
               className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center space-x-2 transition-all font-bold shadow-lg shadow-blue-50"
             >
               <Plus className="w-5 h-5" />
@@ -750,11 +705,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <h3 className="text-lg font-bold text-slate-600 mb-2">No lanes defined</h3>
                 <p className="text-slate-500 mb-6">Create your first operational route to get started</p>
                 <button 
-                  onClick={() => {
-                    setEditingLane(null);
-                    setNewLane({ origin: '', destination: '' });
-                    setIsLaneModalOpen(true);
-                  }}
+                  onClick={() => setIsLaneModalOpen(true)}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-50"
                 >
                   Add First Lane
@@ -769,23 +720,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div key={lane.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-6 hover:shadow-md transition-all group">
                     <div className="flex items-center justify-between mb-4">
                       <span className="text-[10px] text-blue-500 font-black uppercase tracking-widest">{lane.id?.slice(-6) || 'N/A'}</span>
-                      <div className="flex items-center space-x-2">
-                        <button 
-                          onClick={() => handleEditLaneClick(lane)}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-blue-100 rounded-lg transition-all"
-                          title="Edit lane"
-                        >
-                          <Edit className="w-4 h-4 text-blue-600" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteLane(lane.id)}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-100 rounded-lg transition-all"
-                          title="Delete lane"
-                        >
-                          <Trash2 className="w-4 h-4 text-red-600" />
-                        </button>
-                        <Route className="w-5 h-5 text-slate-300 group-hover:text-blue-500 transition-colors" />
-                      </div>
+                      <Route className="w-5 h-5 text-slate-300 group-hover:text-blue-500 transition-colors" />
                     </div>
                     <h4 className="text-lg font-bold text-slate-800 flex items-center mb-6">
                       {lane.origin || 'Unknown'} <ArrowRight className="w-3 h-3 mx-3 text-slate-300" /> {lane.destination || 'Unknown'}
@@ -1049,16 +984,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Header */}
       <div className="px-8 pt-8 pb-4 border-b border-slate-100">
         <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-          {editingLane ? <Edit className="w-5 h-5 text-blue-600" /> : <Plus className="w-5 h-5 text-blue-600" />}
-          {editingLane ? 'Edit Route' : 'Define New Route'}
+          <Plus className="w-5 h-5 text-blue-600" />
+          Define New Route
         </h3>
         <p className="text-sm text-slate-500 mt-1">
-          {editingLane ? 'Update lane details for vendor operations' : 'Create a lane for vendor bidding & auctions'}
+          Create a lane for vendor bidding & auctions
         </p>
       </div>
 
       {/* Body */}
-      <form onSubmit={editingLane ? handleEditLane : handleAddLane} className="p-8 space-y-6">
+      <form onSubmit={handleAddLane} className="p-8 space-y-6">
 
         {/* Info Alert */}
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-700">
@@ -1112,12 +1047,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             type="submit"
             className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-100 transition-all active:scale-[0.98]"
           >
-            {editingLane ? 'Update Lane' : 'Register Lane'}
+            Register Lane
           </button>
 
           <button
             type="button"
-            onClick={handleCancelLaneEdit}
+            onClick={() => setIsLaneModalOpen(false)}
             className="px-6 rounded-xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
           >
             Cancel

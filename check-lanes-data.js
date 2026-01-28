@@ -2,8 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, get, remove } from 'firebase/database';
 
 /* =====================================================
-   Firebase Configuration
-   (unchanged – connects to same project & DB)
+ Firebase Configuration
 ===================================================== */
 const firebaseConfig = {
   apiKey: 'AIzaSyCvzs-HsRtaObQUHD0VCPigEbHj_nZX4g0',
@@ -16,12 +15,10 @@ const firebaseConfig = {
   measurementId: 'G-2NRP205RBD'
 };
 
-
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 
-
-async function checkLanes(): Promise<void> {
+async function checkLanes() {
   try {
     console.log('────────────────────────────────────────');
     console.log(' Starting lane integrity check...');
@@ -35,7 +32,7 @@ async function checkLanes(): Promise<void> {
       return;
     }
 
-    const lanes = snapshot.val() as Record<string, any>;
+    const lanes = snapshot.val();
 
     let validLanes = 0;
     let invalidLanes = 0;
@@ -76,7 +73,6 @@ async function checkLanes(): Promise<void> {
           }`
         );
 
-       
         console.log(`  Removing lane: ${laneId}`);
         await remove(ref(database, `lanes/${laneId}`));
         cleanedLanes++;
@@ -90,13 +86,13 @@ async function checkLanes(): Promise<void> {
     console.log(` Invalid lanes removed: ${cleanedLanes}`);
     console.log(` Total lanes scanned : ${Object.keys(lanes).length}`);
     console.log('────────────────────────────────────────\n');
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error during lane check:', error?.message || error);
   } finally {
-    // Explicit exit (unchanged behavior)
-    process.exit(0);
+    if (typeof process !== 'undefined' && process.exit) {
+      process.exit(0);
+    }
   }
 }
-
 
 checkLanes();

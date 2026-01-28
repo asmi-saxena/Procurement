@@ -65,5 +65,4 @@ async function fixBidsOffers() {
 }
 
 
-
 fixBidsOffers();

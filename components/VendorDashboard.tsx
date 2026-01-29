@@ -13,7 +13,9 @@ import {
   Send,
   Search,
   Timer,
-  X
+  X,
+  Phone,
+  User as UserIcon
 } from 'lucide-react';
 
 import { ShipmentBid, BidStatus, BidOffer, VehicleDetails, Notification, User } from '../types';
@@ -42,6 +44,10 @@ interface ShipmentBid {
   counterOffer?: number;
   finalAmount?: number;
   vehicleDetailsSubmitted?: boolean;
+  // Vehicle & Driver details (populated after submission)
+  vehicleNumber?: string;
+  driverName?: string;
+  driverContact?: string;
 }
 
 interface User {
@@ -80,13 +86,9 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
 }) => {
   const [bidAmount, setBidAmount] = useState<{[key: string]: string}>({});
   const [selectedBid, setSelectedBid] = useState<ShipmentBid | null>(null);
-  const [vehicleDetails, setVehicleDetails] = useState<VehicleDetails>({
-    vehicleNumber: '',
-    vehicleType: '',
-    driverName: '',
-    driverPhone: '',
-    expectedDispatch: ''
-  });
+  
+  // Track vehicle details per bid
+  const [vehicleDetailsByBid, setVehicleDetailsByBid] = useState<{[bidId: string]: VehicleDetails}>({});
 
   const [now, setNow] = useState(new Date());
 
@@ -94,6 +96,27 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Initialize vehicle details for a bid
+  const getVehicleDetails = (bidId: string): VehicleDetails => {
+    return vehicleDetailsByBid[bidId] || {
+      vehicleNumber: '',
+      vehicleType: '',
+      driverName: '',
+      driverPhone: '',
+      expectedDispatch: ''
+    };
+  };
+
+  const updateVehicleDetails = (bidId: string, field: keyof VehicleDetails, value: string) => {
+    setVehicleDetailsByBid(prev => ({
+      ...prev,
+      [bidId]: {
+        ...getVehicleDetails(bidId),
+        [field]: value
+      }
+    }));
+  };
 
   const getTimeRemaining = (bid: ShipmentBid) => {
     const end = new Date(`${bid.bidEndDate}T${bid.bidEndTime}`);
@@ -119,6 +142,26 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
     setBidAmount({...bidAmount, [bidId]: ''});
   };
 
+  const handleSubmitVehicleDetails = (bidId: string) => {
+    const details = getVehicleDetails(bidId);
+    
+    // Validate required fields
+    if (!details.vehicleNumber.trim()) {
+      alert('Please enter the vehicle number');
+      return;
+    }
+    if (!details.driverName.trim()) {
+      alert('Please enter the driver name');
+      return;
+    }
+    if (!details.driverPhone.trim()) {
+      alert('Please enter the driver contact number');
+      return;
+    }
+
+    onSubmitVehicle(bidId, details);
+  };
+
   const myRank = (bid: ShipmentBid) => {
     if (!bid.offers || bid.offers.length === 0) return null;
     const sortedOffers = [...bid.offers].sort((a, b) => a.amount - b.amount);
@@ -131,17 +174,57 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
     return bid.offers.find(o => o.vendorId === currentUser.id);
   };
 
+  // Check if auction has ended based on time
+  const isAuctionEnded = (bid: ShipmentBid) => {
+    const end = new Date(`${bid.bidEndDate}T${bid.bidEndTime}`);
+    return now >= end;
+  };
+
+  // Check if vendor is L1 (lowest bidder / rank 1)
+  const isVendorL1 = (bid: ShipmentBid) => {
+    return myRank(bid) === 1;
+  };
+
   const getStatusDisplay = (status: BidStatus, bid: ShipmentBid) => {
     const winner = bid.winningVendorId === currentUser.id;
-    if (status === BidStatus.FINALIZED && winner) return { label: 'WINNER', color: 'bg-emerald-500 text-white' };
+    const auctionEnded = isAuctionEnded(bid) || status === BidStatus.CLOSED;
+    const isL1Winner = auctionEnded && isVendorL1(bid);
+    
+    // Show WINNER if explicitly marked or if L1 when auction ended
+    if ((status === BidStatus.FINALIZED && winner) || isL1Winner) {
+      return { label: 'WINNER', color: 'bg-emerald-500 text-white' };
+    }
     if (status === BidStatus.FINALIZED && !winner) return { label: 'LOST', color: 'bg-slate-400 text-white' };
     if (status === BidStatus.NEGOTIATING && bid.winningVendorId === currentUser.id) return { label: 'NEGOTIATION', color: 'bg-blue-500 text-white' };
+    
+    // Show AUCTION ENDED if time has expired but status not updated yet
+    if (auctionEnded && status === BidStatus.OPEN) {
+      return { label: 'AUCTION ENDED', color: 'bg-amber-100 text-amber-700' };
+    }
     
     switch (status) {
       case BidStatus.OPEN: return { label: 'ACTIVE', color: 'bg-emerald-100 text-emerald-700' };
       case BidStatus.CLOSED: return { label: 'AUCTION ENDED', color: 'bg-amber-100 text-amber-700' };
       default: return { label: status, color: 'bg-slate-100 text-slate-700' };
     }
+  };
+
+  // Check if vendor is winner and needs to submit vehicle details
+  // This should show when:
+  // 1. Auction has ended (time expired) OR status is FINALIZED/ASSIGNED
+  // 2. Vendor is rank #1 (L1) OR explicitly marked as winner
+  // 3. Vehicle details not yet submitted
+  const isWinnerNeedingVehicleDetails = (bid: ShipmentBid) => {
+    const auctionEnded = isAuctionEnded(bid) || bid.status === BidStatus.FINALIZED || bid.status === BidStatus.ASSIGNED || bid.status === BidStatus.CLOSED;
+    const isWinner = bid.winningVendorId === currentUser.id || isVendorL1(bid);
+    return auctionEnded && isWinner && !bid.vehicleDetailsSubmitted;
+  };
+
+  // Check if vehicle details are already submitted
+  const hasSubmittedVehicleDetails = (bid: ShipmentBid) => {
+    const auctionEnded = isAuctionEnded(bid) || bid.status === BidStatus.FINALIZED || bid.status === BidStatus.ASSIGNED || bid.status === BidStatus.CLOSED;
+    const isWinner = bid.winningVendorId === currentUser.id || isVendorL1(bid);
+    return auctionEnded && isWinner && bid.vehicleDetailsSubmitted;
   };
 
   return (
@@ -170,6 +253,9 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
               const status = getStatusDisplay(bid.status, bid);
               const rank = myRank(bid);
               const offer = myOffer(bid);
+              const vehicleDetails = getVehicleDetails(bid.id);
+              const showVehicleForm = isWinnerNeedingVehicleDetails(bid);
+              const vehicleSubmitted = hasSubmittedVehicleDetails(bid);
 
               return (
                 <div 
@@ -226,6 +312,115 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
                         </div>
                       </div>
                     </div>
+
+                    {/* Vehicle Details Form for Winners */}
+                    {showVehicleForm && (
+                      <div className="mb-6 bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-2xl p-6">
+                        <div className="flex items-center space-x-3 mb-4">
+                          <div className="bg-emerald-500 p-2 rounded-xl">
+                            <CheckCircle2 className="w-5 h-5 text-white" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-emerald-800"> Congratulations! You Won This Bid</h4>
+                            <p className="text-xs text-emerald-600">Please provide vehicle and driver details to proceed with dispatch</p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* Vehicle Number */}
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight flex items-center space-x-1">
+                              <Truck className="w-3 h-3" />
+                              <span>Vehicle Number *</span>
+                            </label>
+                            <input 
+                              className="w-full bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+                              placeholder="e.g. MH 12 AB 1234"
+                              value={vehicleDetails.vehicleNumber}
+                              onChange={e => updateVehicleDetails(bid.id, 'vehicleNumber', e.target.value)}
+                            />
+                          </div>
+                          
+                          {/* Driver Name */}
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight flex items-center space-x-1">
+                              <UserIcon className="w-3 h-3" />
+                              <span>Driver Name *</span>
+                            </label>
+                            <input 
+                              className="w-full bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+                              placeholder="e.g. Rajesh Kumar"
+                              value={vehicleDetails.driverName}
+                              onChange={e => updateVehicleDetails(bid.id, 'driverName', e.target.value)}
+                            />
+                          </div>
+                          
+                          {/* Driver Contact */}
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight flex items-center space-x-1">
+                              <Phone className="w-3 h-3" />
+                              <span>Driver Contact *</span>
+                            </label>
+                            <input 
+                              className="w-full bg-white border-2 border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+                              placeholder="e.g. +91 98765 43210"
+                              value={vehicleDetails.driverPhone}
+                              onChange={e => updateVehicleDetails(bid.id, 'driverPhone', e.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-5 flex items-center justify-between">
+                          <p className="text-[10px] text-slate-400">* All fields are required</p>
+                          <button 
+                            onClick={() => handleSubmitVehicleDetails(bid.id)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-emerald-200 transition-all flex items-center space-x-2"
+                          >
+                            <Send className="w-4 h-4" />
+                            <span>Submit Details</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Vehicle Details Already Submitted - Show Summary */}
+                    {vehicleSubmitted && (
+                      <div className="mb-6 bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 rounded-2xl p-5">
+                        <div className="flex items-center space-x-3 mb-4">
+                          <div className="bg-emerald-100 p-2 rounded-xl">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-800">Vehicle Details Submitted</h4>
+                            <p className="text-xs text-slate-500">Your dispatch details have been recorded</p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="bg-white rounded-xl p-3 border border-slate-200">
+                            <div className="flex items-center space-x-2 mb-1">
+                              <Truck className="w-4 h-4 text-blue-500" />
+                              <span className="text-[10px] font-bold text-slate-400 uppercase">Vehicle</span>
+                            </div>
+                            <p className="text-sm font-bold text-slate-800">{bid.vehicleNumber || 'N/A'}</p>
+                          </div>
+                          <div className="bg-white rounded-xl p-3 border border-slate-200">
+                            <div className="flex items-center space-x-2 mb-1">
+                              <UserIcon className="w-4 h-4 text-emerald-500" />
+                              <span className="text-[10px] font-bold text-slate-400 uppercase">Driver</span>
+                            </div>
+                            <p className="text-sm font-bold text-slate-800">{bid.driverName || 'N/A'}</p>
+                          </div>
+                          <div className="bg-white rounded-xl p-3 border border-slate-200">
+                            <div className="flex items-center space-x-2 mb-1">
+                              <Phone className="w-4 h-4 text-amber-500" />
+                              <span className="text-[10px] font-bold text-slate-400 uppercase">Contact</span>
+                            </div>
+                            <p className="text-sm font-bold text-slate-800">{bid.driverContact || 'N/A'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex flex-col md:flex-row items-center gap-4 pt-6 border-t border-slate-50">
                       {/* Bidding Input (Only if Open) */}
@@ -332,60 +527,20 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
                 </div>
               )}
 
-              {/* Submit Vehicle Details */}
-              {selectedBid.status === BidStatus.FINALIZED && selectedBid.winningVendorId === currentUser.id && (
-                <div className="bg-slate-50 border border-slate-200 p-5 rounded-2xl space-y-5">
+              {/* Info when vehicle details form is shown in card */}
+              {isWinnerNeedingVehicleDetails(selectedBid) && (
+                <div className="bg-emerald-50 border border-emerald-200 p-5 rounded-2xl space-y-3">
                   <div className="flex items-center space-x-2">
-                    <CheckCircle2 className="w-5 h-5 text-indigo-600" />
-                    <h4 className="text-sm font-bold text-slate-800">Final Logistics Assignment</h4>
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    <h4 className="text-sm font-bold text-emerald-800">You Won This Auction!</h4>
                   </div>
-                  <p className="text-xs text-slate-500">Provide details for dispatch scheduling.</p>
-                  
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Vehicle Number</label>
-                      <input 
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="DL 01 AA 1234"
-                        value={vehicleDetails.vehicleNumber}
-                        onChange={e => setVehicleDetails({...vehicleDetails, vehicleNumber: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Driver Name</label>
-                      <input 
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="John Doe"
-                        value={vehicleDetails.driverName}
-                        onChange={e => setVehicleDetails({...vehicleDetails, driverName: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Driver Phone</label>
-                      <input 
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="+91 98XXX XXXXX"
-                        value={vehicleDetails.driverPhone}
-                        onChange={e => setVehicleDetails({...vehicleDetails, driverPhone: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Expected Dispatch</label>
-                      <input 
-                        type="datetime-local"
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        value={vehicleDetails.expectedDispatch}
-                        onChange={e => setVehicleDetails({...vehicleDetails, expectedDispatch: e.target.value})}
-                      />
-                    </div>
+                  <p className="text-xs text-emerald-700">
+                    Please fill in the vehicle and driver details in the form above to complete the dispatch assignment.
+                  </p>
+                  <div className="bg-white rounded-xl p-3 border border-emerald-100">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Final Amount</p>
+                    <p className="text-lg font-black text-emerald-700">₹{selectedBid.finalAmount?.toLocaleString() || (selectedBid.offers || [])[0]?.amount.toLocaleString()}</p>
                   </div>
-
-                  <button 
-                    onClick={() => onSubmitVehicle(selectedBid.id, vehicleDetails)}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-indigo-100 transition-all"
-                  >
-                    Submit Vehicle Details
-                  </button>
                 </div>
               )}
 
@@ -396,6 +551,30 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
                   </div>
                   <h4 className="font-bold text-slate-800">Trip Assigned</h4>
                   <p className="text-xs text-slate-500 mt-2 px-4">The shipment is fully assigned. Prepare for pickup at the scheduled time.</p>
+                </div>
+              )}
+
+              {/* Show submitted details in side panel too */}
+              {hasSubmittedVehicleDetails(selectedBid) && (
+                <div className="bg-slate-50 border border-slate-200 p-5 rounded-2xl space-y-4">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    <h4 className="text-sm font-bold text-slate-800">Dispatch Details Confirmed</h4>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">Vehicle Number</span>
+                      <span className="text-sm font-bold text-slate-800">{selectedBid.vehicleNumber}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">Driver Name</span>
+                      <span className="text-sm font-bold text-slate-800">{selectedBid.driverName}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">Driver Contact</span>
+                      <span className="text-sm font-bold text-slate-800">{selectedBid.driverContact}</span>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

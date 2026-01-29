@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
- Plus,
+Plus,
   ChevronRight,
   ArrowRight,
   MapPin,
@@ -28,7 +27,9 @@ import {
   Building2,
   Route,
   Edit,
-  Trash2
+  Trash2,
+  Phone,
+  User as UserIcon
 } from 'lucide-react';
 import { ShipmentBid, BidStatus, VehicleType, LoadType, Notification, User, UserRole, Lane } from '../types';
 import { INITIAL_LANES, MOCK_USERS } from '../mockData';
@@ -118,7 +119,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     bidEndDate: new Date().toISOString().split('T')[0],
     bidEndTime: '18:00',
     showL1Value: false,
-    vehicleType: VehicleType.TRUCK
+    vehicleType: VehicleType.TRUCK,
+    // New fields for vehicle & driver details
+    vehicleNumber: '',
+    driverName: '',
+    driverContact: ''
   });
 
   // Computed values for lane-based city selection
@@ -464,6 +469,60 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <div className="bg-slate-50 p-3 rounded-xl border border-slate-100"><p className="text-[10px] text-emerald-500 font-bold uppercase mb-1">Delivery</p><p className="text-xs font-bold text-slate-800">{selectedBid.deliveryParty || 'N/A'}</p><p className="text-[10px] text-slate-500 leading-tight mt-1">{selectedBid.deliveryAddress || 'Address not specified'}</p></div>
                       </div>
                     </div>
+                    {/* Vehicle & Driver Details Section - NEW */}
+                    <div className="pt-6 border-t border-slate-50">
+                      <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center">
+                        <Truck className="w-3 h-3 mr-1.5" /> Vehicle & Driver Details
+                      </h5>
+                      <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-4 rounded-xl border border-slate-200 space-y-4">
+                        {/* Vehicle Number */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <Truck className="w-4 h-4 text-blue-600" />
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-bold uppercase">Vehicle Number</span>
+                          </div>
+                          <span className="text-sm font-bold text-slate-800 bg-white px-3 py-1 rounded-lg border border-slate-200">
+                            {selectedBid.vehicleNumber || 'Not Assigned'}
+                          </span>
+                        </div>
+                        {/* Driver Name */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+                              <UserIcon className="w-4 h-4 text-emerald-600" />
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-bold uppercase">Driver Name</span>
+                          </div>
+                          <span className="text-sm font-bold text-slate-800 bg-white px-3 py-1 rounded-lg border border-slate-200">
+                            {selectedBid.driverName || 'Not Assigned'}
+                          </span>
+                        </div>
+                        {/* Driver Contact */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+                              <Phone className="w-4 h-4 text-amber-600" />
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-bold uppercase">Driver Contact</span>
+                          </div>
+                          {selectedBid.driverContact ? (
+                            <a 
+                              href={`tel:${selectedBid.driverContact}`} 
+                              className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors"
+                            >
+                              {selectedBid.driverContact}
+                            </a>
+                          ) : (
+                            <span className="text-sm font-bold text-slate-800 bg-white px-3 py-1 rounded-lg border border-slate-200">
+                              Not Available
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {/* End of Vehicle & Driver Details Section */}
                     <div className="pt-6 border-t border-slate-50">
                       <div className="flex justify-between items-center mb-4"><h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center"><History className="w-3 h-3 mr-1.5" /> Bid Ladder</h5><span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">Live</span></div>
                       {selectedBid && (selectedBid.offers || []).length > 0 ? (

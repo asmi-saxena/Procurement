@@ -15,7 +15,13 @@ import {
   Timer,
   X,
   Phone,
-  User as UserIcon
+  User as UserIcon,
+  Filter,
+  ChevronDown,
+  ArrowUpDown,
+  Play,
+  Pause,
+  Trophy
 } from 'lucide-react';
 
 import { ShipmentBid, BidStatus, BidOffer, VehicleDetails, Notification, User } from '../types';
@@ -67,6 +73,8 @@ interface Notification {
   read?: boolean;
 }
 
+type VendorBidFilter = 'all' | 'active' | 'won' | 'lost' | 'newest' | 'oldest';
+
 interface VendorDashboardProps {
   currentUser: User;
   bids: ShipmentBid[];
@@ -89,6 +97,10 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
   
   // Track vehicle details per bid
   const [vehicleDetailsByBid, setVehicleDetailsByBid] = useState<{[bidId: string]: VehicleDetails}>({});
+
+  // Filter state
+  const [bidFilter, setBidFilter] = useState<VendorBidFilter>('all');
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
 
   const [now, setNow] = useState(new Date());
 
@@ -132,6 +144,94 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
     return bids.filter(bid => currentUser.lanes?.includes(bid.lane));
   }, [bids, currentUser.lanes]);
 
+  // Helper functions - must be defined before use
+  const myRank = (bid: ShipmentBid) => {
+    if (!bid.offers || bid.offers.length === 0) return null;
+    const sortedOffers = [...bid.offers].sort((a, b) => a.amount - b.amount);
+    const index = sortedOffers.findIndex(o => o.vendorId === currentUser.id);
+    return index === -1 ? null : index + 1;
+  };
+
+  const myOffer = (bid: ShipmentBid) => {
+    if (!bid.offers || bid.offers.length === 0) return undefined;
+    return bid.offers.find(o => o.vendorId === currentUser.id);
+  };
+
+  // Check if auction has ended based on time
+  const isAuctionEnded = (bid: ShipmentBid) => {
+    const end = new Date(`${bid.bidEndDate}T${bid.bidEndTime}`);
+    return now >= end;
+  };
+
+  // Check if vendor is L1 (lowest bidder / rank 1)
+  const isVendorL1 = (bid: ShipmentBid) => {
+    return myRank(bid) === 1;
+  };
+
+  // Get vendor-specific bid status
+  const getVendorBidStatus = (bid: ShipmentBid) => {
+    const auctionEnded = isAuctionEnded(bid) || bid.status === BidStatus.CLOSED;
+    const isWinner = bid.winningVendorId === currentUser.id || (auctionEnded && isVendorL1(bid));
+    const hasParticipated = myOffer(bid) !== undefined;
+    
+    if (isWinner) return 'won';
+    if (auctionEnded && hasParticipated && !isWinner) return 'lost';
+    if (!auctionEnded && bid.status === BidStatus.OPEN) return 'active';
+    return 'other';
+  };
+
+  // Filtered and sorted bids based on selected filter
+  const filteredMatchingBids = useMemo(() => {
+    let result = [...matchingBids];
+    
+    switch (bidFilter) {
+      case 'active':
+        result = result.filter(b => !isAuctionEnded(b) && b.status === BidStatus.OPEN);
+        break;
+      case 'won':
+        result = result.filter(b => getVendorBidStatus(b) === 'won');
+        break;
+      case 'lost':
+        result = result.filter(b => getVendorBidStatus(b) === 'lost');
+        break;
+      case 'newest':
+        result = result.sort((a, b) => {
+          const dateA = new Date(`${a.bidStartDate}T${a.bidStartTime || '00:00'}`);
+          const dateB = new Date(`${b.bidStartDate}T${b.bidStartTime || '00:00'}`);
+          return dateB.getTime() - dateA.getTime();
+        });
+        break;
+      case 'oldest':
+        result = result.sort((a, b) => {
+          const dateA = new Date(`${a.bidStartDate}T${a.bidStartTime || '00:00'}`);
+          const dateB = new Date(`${b.bidStartDate}T${b.bidStartTime || '00:00'}`);
+          return dateA.getTime() - dateB.getTime();
+        });
+        break;
+      case 'all':
+      default:
+        // Default: show newest first
+        result = result.sort((a, b) => {
+          const dateA = new Date(`${a.bidStartDate}T${a.bidStartTime || '00:00'}`);
+          const dateB = new Date(`${b.bidStartDate}T${b.bidStartTime || '00:00'}`);
+          return dateB.getTime() - dateA.getTime();
+        });
+        break;
+    }
+    
+    return result;
+  }, [matchingBids, bidFilter, now, currentUser.id]);
+
+  // Filter options configuration
+  const filterOptions: { value: VendorBidFilter; label: string; icon: React.ReactNode; count?: number }[] = [
+    { value: 'all', label: 'All Loads', icon: <Filter className="w-3.5 h-3.5" />, count: matchingBids.length },
+    { value: 'active', label: 'Active', icon: <Play className="w-3.5 h-3.5" />, count: matchingBids.filter(b => !isAuctionEnded(b) && b.status === BidStatus.OPEN).length },
+    { value: 'won', label: 'Won', icon: <Trophy className="w-3.5 h-3.5" />, count: matchingBids.filter(b => getVendorBidStatus(b) === 'won').length },
+    { value: 'lost', label: 'Lost', icon: <X className="w-3.5 h-3.5" />, count: matchingBids.filter(b => getVendorBidStatus(b) === 'lost').length },
+    { value: 'newest', label: 'Newest First', icon: <ArrowUpDown className="w-3.5 h-3.5" /> },
+    { value: 'oldest', label: 'Oldest First', icon: <ArrowUpDown className="w-3.5 h-3.5 rotate-180" /> },
+  ];
+
   const handleBidding = (bidId: string) => {
     const amount = parseInt(bidAmount[bidId]);
     if (!amount || isNaN(amount)) {
@@ -160,29 +260,6 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
     }
 
     onSubmitVehicle(bidId, details);
-  };
-
-  const myRank = (bid: ShipmentBid) => {
-    if (!bid.offers || bid.offers.length === 0) return null;
-    const sortedOffers = [...bid.offers].sort((a, b) => a.amount - b.amount);
-    const index = sortedOffers.findIndex(o => o.vendorId === currentUser.id);
-    return index === -1 ? null : index + 1;
-  };
-
-  const myOffer = (bid: ShipmentBid) => {
-    if (!bid.offers || bid.offers.length === 0) return undefined;
-    return bid.offers.find(o => o.vendorId === currentUser.id);
-  };
-
-  // Check if auction has ended based on time
-  const isAuctionEnded = (bid: ShipmentBid) => {
-    const end = new Date(`${bid.bidEndDate}T${bid.bidEndTime}`);
-    return now >= end;
-  };
-
-  // Check if vendor is L1 (lowest bidder / rank 1)
-  const isVendorL1 = (bid: ShipmentBid) => {
-    return myRank(bid) === 1;
   };
 
   const getStatusDisplay = (status: BidStatus, bid: ShipmentBid) => {
@@ -230,26 +307,148 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Welcome & Registered Lanes */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 space-y-4">
+      <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 space-y-4">
         <div>
           <h2 className="text-3xl font-extrabold text-slate-800">Available Loads</h2>
           <p className="text-slate-500">Real-time matching for your registered lanes</p>
         </div>
-        <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Your Lanes:</span>
-          {currentUser.lanes?.map(lane => (
-            <span key={lane} className="bg-white border border-slate-200 px-3 py-1 rounded-full text-[10px] font-bold text-slate-600 shadow-sm whitespace-nowrap">
-              {lane}
-            </span>
-          ))}
+        <div className="flex items-center space-x-3">
+          {/* Filter Dropdown */}
+          <div className="relative">
+            <button 
+              onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+              className={`bg-white border border-slate-200 rounded-xl px-4 py-2.5 flex items-center space-x-2 hover:bg-slate-50 transition-all ${bidFilter !== 'all' ? 'border-blue-500 bg-blue-50' : ''}`}
+            >
+              <Filter className={`w-4 h-4 ${bidFilter !== 'all' ? 'text-blue-600' : 'text-slate-500'}`} />
+              <span className={`text-sm font-medium ${bidFilter !== 'all' ? 'text-blue-600' : 'text-slate-600'}`}>
+                {filterOptions.find(f => f.value === bidFilter)?.label || 'Filter'}
+              </span>
+              {bidFilter !== 'all' && (
+                <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                  {filteredMatchingBids.length}
+                </span>
+              )}
+              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isFilterDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {isFilterDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setIsFilterDropdownOpen(false)} />
+                <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 overflow-hidden">
+                  <div className="p-2">
+                    <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Filter by Status</p>
+                    {filterOptions.filter(o => ['all', 'active', 'won', 'lost'].includes(o.value)).map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => {
+                          setBidFilter(option.value);
+                          setIsFilterDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all ${
+                          bidFilter === option.value
+                            ? 'bg-blue-50 text-blue-600'
+                            : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2">
+                          {option.icon}
+                          <span className="font-medium">{option.label}</span>
+                        </div>
+                        {option.count !== undefined && (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                            bidFilter === option.value
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {option.count}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="border-t border-slate-100 p-2">
+                    <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sort by Date</p>
+                    {filterOptions.filter(o => ['newest', 'oldest'].includes(o.value)).map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => {
+                          setBidFilter(option.value);
+                          setIsFilterDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center space-x-2 px-3 py-2.5 rounded-xl text-sm transition-all ${
+                          bidFilter === option.value
+                            ? 'bg-blue-50 text-blue-600'
+                            : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {option.icon}
+                        <span className="font-medium">{option.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {bidFilter !== 'all' && (
+                    <div className="border-t border-slate-100 p-2">
+                      <button
+                        onClick={() => {
+                          setBidFilter('all');
+                          setIsFilterDropdownOpen(false);
+                        }}
+                        className="w-full flex items-center justify-center space-x-2 px-3 py-2.5 rounded-xl text-sm text-rose-600 hover:bg-rose-50 transition-all"
+                      >
+                        <X className="w-4 h-4" />
+                        <span className="font-medium">Clear Filter</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Lanes pills */}
+          <div className="hidden md:flex items-center space-x-2 overflow-x-auto pb-1">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Your Lanes:</span>
+            {currentUser.lanes?.map(lane => (
+              <span key={lane} className="bg-white border border-slate-200 px-3 py-1 rounded-full text-[10px] font-bold text-slate-600 shadow-sm whitespace-nowrap">
+                {lane}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* Mobile Lanes Display */}
+      <div className="flex md:hidden items-center space-x-2 overflow-x-auto pb-4 mb-4">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Your Lanes:</span>
+        {currentUser.lanes?.map(lane => (
+          <span key={lane} className="bg-white border border-slate-200 px-3 py-1 rounded-full text-[10px] font-bold text-slate-600 shadow-sm whitespace-nowrap">
+            {lane}
+          </span>
+        ))}
+      </div>
+
+      {/* Active filter indicator */}
+      {bidFilter !== 'all' && (
+        <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-xl px-4 py-2 mb-6">
+          <p className="text-sm text-blue-700">
+            Showing <span className="font-bold">{filteredMatchingBids.length}</span> {filteredMatchingBids.length === 1 ? 'load' : 'loads'} 
+            {' '}matching "<span className="font-medium">{filterOptions.find(f => f.value === bidFilter)?.label}</span>"
+          </p>
+          <button
+            onClick={() => setBidFilter('all')}
+            className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center space-x-1"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>Clear</span>
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col lg:flex-row gap-8">
         {/* Bid Listings */}
         <div className="lg:w-2/3 space-y-6">
-          {matchingBids.length > 0 ? (
-            matchingBids.map(bid => {
+          {filteredMatchingBids.length > 0 ? (
+            filteredMatchingBids.map(bid => {
               const status = getStatusDisplay(bid.status, bid);
               const rank = myRank(bid);
               const offer = myOffer(bid);
@@ -321,7 +520,7 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
                             <CheckCircle2 className="w-5 h-5 text-white" />
                           </div>
                           <div>
-                            <h4 className="text-sm font-bold text-emerald-800"> Congratulations! You Won This Bid</h4>
+                            <h4 className="text-sm font-bold text-emerald-800">🎉 Congratulations! You Won This Bid</h4>
                             <p className="text-xs text-emerald-600">Please provide vehicle and driver details to proceed with dispatch</p>
                           </div>
                         </div>
@@ -479,10 +678,29 @@ const VendorDashboard: React.FC<VendorDashboardProps> = ({
           ) : (
             <div className="bg-white border-2 border-dashed border-slate-200 rounded-[2.5rem] p-16 text-center">
               <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Search className="w-8 h-8 text-slate-300" />
+                {bidFilter !== 'all' ? (
+                  <Filter className="w-8 h-8 text-slate-300" />
+                ) : (
+                  <Search className="w-8 h-8 text-slate-300" />
+                )}
               </div>
-              <h3 className="text-xl font-bold text-slate-800 mb-2">No Matching Shipments</h3>
-              <p className="text-slate-500 max-w-sm mx-auto">We'll notify you as soon as a load matching your registered lanes is published by WebXpress.</p>
+              {bidFilter !== 'all' ? (
+                <>
+                  <h3 className="text-xl font-bold text-slate-800 mb-2">No Loads Found</h3>
+                  <p className="text-slate-500 max-w-sm mx-auto mb-4">No loads match the "{filterOptions.find(f => f.value === bidFilter)?.label}" filter.</p>
+                  <button
+                    onClick={() => setBidFilter('all')}
+                    className="text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    Clear filter and show all loads
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-xl font-bold text-slate-800 mb-2">No Matching Shipments</h3>
+                  <p className="text-slate-500 max-w-sm mx-auto">We'll notify you as soon as a load matching your registered lanes is published by WebXpress.</p>
+                </>
+              )}
             </div>
           )}
         </div>

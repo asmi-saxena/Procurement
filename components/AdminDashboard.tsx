@@ -29,7 +29,11 @@ Plus,
   Edit,
   Trash2,
   Phone,
-  User as UserIcon
+  User as UserIcon,
+  Filter,
+  ArrowUpDown,
+  Play,
+  Pause
 } from 'lucide-react';
 import { ShipmentBid, BidStatus, VehicleType, LoadType, Notification, User, UserRole, Lane } from '../types';
 import { INITIAL_LANES, MOCK_USERS } from '../mockData';
@@ -46,6 +50,7 @@ interface AdminDashboardProps {
 }
 
 type AdminTab = 'AUCTIONS' | 'VENDORS' | 'LANES';
+type BidFilter = 'all' | 'newest' | 'oldest' | 'in_process' | 'completed' | 'not_started';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
   bids, 
@@ -63,6 +68,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [selectedBid, setSelectedBid] = useState<ShipmentBid | null>(null);
   const [counterAmount, setCounterAmount] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [bidFilter, setBidFilter] = useState<BidFilter>('all');
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const [now, setNow] = useState(new Date());
 
   // Use Firebase for vendors and lanes instead of local state
@@ -185,6 +192,59 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const activeBidsCount = useMemo(() => {
     return bids.filter(b => getBidLifecycleStatus(b) === "In Process").length;
   }, [bids, now]);
+
+  // Filtered and sorted bids based on selected filter
+  const filteredBids = useMemo(() => {
+    let result = [...(bids || [])];
+    
+    // First filter by status
+    switch (bidFilter) {
+      case 'in_process':
+        result = result.filter(b => getBidLifecycleStatus(b) === "In Process");
+        break;
+      case 'completed':
+        result = result.filter(b => getBidLifecycleStatus(b) === "Completed");
+        break;
+      case 'not_started':
+        result = result.filter(b => getBidLifecycleStatus(b) === "Not Started Yet");
+        break;
+      case 'newest':
+        result = result.sort((a, b) => {
+          const dateA = new Date(`${a.bidStartDate}T${a.bidStartTime || '00:00'}`);
+          const dateB = new Date(`${b.bidStartDate}T${b.bidStartTime || '00:00'}`);
+          return dateB.getTime() - dateA.getTime();
+        });
+        break;
+      case 'oldest':
+        result = result.sort((a, b) => {
+          const dateA = new Date(`${a.bidStartDate}T${a.bidStartTime || '00:00'}`);
+          const dateB = new Date(`${b.bidStartDate}T${b.bidStartTime || '00:00'}`);
+          return dateA.getTime() - dateB.getTime();
+        });
+        break;
+      case 'all':
+      default:
+        // Default: show newest first
+        result = result.sort((a, b) => {
+          const dateA = new Date(`${a.bidStartDate}T${a.bidStartTime || '00:00'}`);
+          const dateB = new Date(`${b.bidStartDate}T${b.bidStartTime || '00:00'}`);
+          return dateB.getTime() - dateA.getTime();
+        });
+        break;
+    }
+    
+    return result;
+  }, [bids, bidFilter, now]);
+
+  // Filter options configuration
+  const filterOptions: { value: BidFilter; label: string; icon: React.ReactNode; count?: number }[] = [
+    { value: 'all', label: 'All Bids', icon: <Filter className="w-3.5 h-3.5" />, count: bids?.length || 0 },
+    { value: 'in_process', label: 'In Process', icon: <Play className="w-3.5 h-3.5" />, count: bids?.filter(b => getBidLifecycleStatus(b) === "In Process").length || 0 },
+    { value: 'completed', label: 'Completed', icon: <CheckCircle2 className="w-3.5 h-3.5" />, count: bids?.filter(b => getBidLifecycleStatus(b) === "Completed").length || 0 },
+    { value: 'not_started', label: 'Not Started', icon: <Pause className="w-3.5 h-3.5" />, count: bids?.filter(b => getBidLifecycleStatus(b) === "Not Started Yet").length || 0 },
+    { value: 'newest', label: 'Newest First', icon: <ArrowUpDown className="w-3.5 h-3.5" /> },
+    { value: 'oldest', label: 'Oldest First', icon: <ArrowUpDown className="w-3.5 h-3.5 rotate-180" /> },
+  ];
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -379,6 +439,98 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <p className="text-sm text-slate-500">Monitor live negotiations and manage logistics requests.</p>
                 </div>
                 <div className="flex items-center space-x-3">
+                  {/* Filter Dropdown */}
+                  <div className="relative">
+                    <button 
+                      onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+                      className={`bg-white border border-slate-200 rounded-xl px-4 py-2.5 flex items-center space-x-2 hover:bg-slate-50 transition-all ${bidFilter !== 'all' ? 'border-blue-500 bg-blue-50' : ''}`}
+                    >
+                      <Filter className={`w-4 h-4 ${bidFilter !== 'all' ? 'text-blue-600' : 'text-slate-500'}`} />
+                      <span className={`text-sm font-medium ${bidFilter !== 'all' ? 'text-blue-600' : 'text-slate-600'}`}>
+                        {filterOptions.find(f => f.value === bidFilter)?.label || 'Filter'}
+                      </span>
+                      {bidFilter !== 'all' && (
+                        <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                          {filteredBids.length}
+                        </span>
+                      )}
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isFilterDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    
+                    {isFilterDropdownOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setIsFilterDropdownOpen(false)} />
+                        <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 overflow-hidden">
+                          <div className="p-2">
+                            <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Filter by Status</p>
+                            {filterOptions.filter(o => ['all', 'in_process', 'completed', 'not_started'].includes(o.value)).map((option) => (
+                              <button
+                                key={option.value}
+                                onClick={() => {
+                                  setBidFilter(option.value);
+                                  setIsFilterDropdownOpen(false);
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all ${
+                                  bidFilter === option.value
+                                    ? 'bg-blue-50 text-blue-600'
+                                    : 'text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2">
+                                  {option.icon}
+                                  <span className="font-medium">{option.label}</span>
+                                </div>
+                                {option.count !== undefined && (
+                                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                                    bidFilter === option.value
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {option.count}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="border-t border-slate-100 p-2">
+                            <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sort by Date</p>
+                            {filterOptions.filter(o => ['newest', 'oldest'].includes(o.value)).map((option) => (
+                              <button
+                                key={option.value}
+                                onClick={() => {
+                                  setBidFilter(option.value);
+                                  setIsFilterDropdownOpen(false);
+                                }}
+                                className={`w-full flex items-center space-x-2 px-3 py-2.5 rounded-xl text-sm transition-all ${
+                                  bidFilter === option.value
+                                    ? 'bg-blue-50 text-blue-600'
+                                    : 'text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                {option.icon}
+                                <span className="font-medium">{option.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                          {bidFilter !== 'all' && (
+                            <div className="border-t border-slate-100 p-2">
+                              <button
+                                onClick={() => {
+                                  setBidFilter('all');
+                                  setIsFilterDropdownOpen(false);
+                                }}
+                                className="w-full flex items-center justify-center space-x-2 px-3 py-2.5 rounded-xl text-sm text-rose-600 hover:bg-rose-50 transition-all"
+                              >
+                                <X className="w-4 h-4" />
+                                <span className="font-medium">Clear Filter</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   <div className="bg-white border border-slate-200 rounded-xl p-1 flex">
                     <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-blue-50 text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}><LayoutGrid className="w-5 h-5" /></button>
                     <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-blue-50 text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}><ListIcon className="w-5 h-5" /></button>
@@ -390,43 +542,74 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
+              {/* Results count - only show when filter is active */}
+              {bidFilter !== 'all' && (
+                <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-xl px-4 py-2">
+                  <p className="text-sm text-blue-700">
+                    Showing <span className="font-bold">{filteredBids.length}</span> {filteredBids.length === 1 ? 'bid' : 'bids'} 
+                    {' '}matching "<span className="font-medium">{filterOptions.find(f => f.value === bidFilter)?.label}</span>"
+                  </p>
+                  <button
+                    onClick={() => setBidFilter('all')}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center space-x-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Clear</span>
+                  </button>
+                </div>
+              )}
+
               <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 gap-4' : 'space-y-4'}>
-                {(bids || []).map((bid) => {
-                  const lifecycle = getBidLifecycleStatus(bid);
-                  const timer = getTimeRemaining(bid);
-                  const isSelected = selectedBid?.id === bid.id;
-                  return (
-                    <div key={`${bid.id}-${now.getTime()}`} onClick={() => setSelectedBid(bid)} className={`bg-white border p-5 rounded-2xl cursor-pointer transition-all hover:shadow-lg relative overflow-hidden group ${isSelected ? 'border-blue-500 ring-4 ring-blue-50' : 'border-slate-200'}`}>
-                      <div className={`absolute top-0 left-0 w-1 h-full ${lifecycle === 'In Process' ? 'bg-rose-500' : lifecycle === 'Completed' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="space-y-0.5">
-                          <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">{bid.id} • {bid.lane}</p>
-                          <h4 className="font-bold text-slate-800 flex items-center">{bid.origin} <ArrowRight className="w-3 h-3 mx-2 text-slate-300" /> {bid.destination}</h4>
+                {filteredBids.length > 0 ? (
+                  filteredBids.map((bid) => {
+                    const lifecycle = getBidLifecycleStatus(bid);
+                    const timer = getTimeRemaining(bid);
+                    const isSelected = selectedBid?.id === bid.id;
+                    return (
+                      <div key={`${bid.id}-${now.getTime()}`} onClick={() => setSelectedBid(bid)} className={`bg-white border p-5 rounded-2xl cursor-pointer transition-all hover:shadow-lg relative overflow-hidden group ${isSelected ? 'border-blue-500 ring-4 ring-blue-50' : 'border-slate-200'}`}>
+                        <div className={`absolute top-0 left-0 w-1 h-full ${lifecycle === 'In Process' ? 'bg-rose-500' : lifecycle === 'Completed' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">{bid.id} • {bid.lane}</p>
+                            <h4 className="font-bold text-slate-800 flex items-center">{bid.origin} <ArrowRight className="w-3 h-3 mx-2 text-slate-300" /> {bid.destination}</h4>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tighter ${getStatusColor(lifecycle)}`}>{lifecycle}</span>
                         </div>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-tighter ${getStatusColor(lifecycle)}`}>{lifecycle}</span>
+                        <div className="grid grid-cols-2 gap-3 mb-4">
+                          <div className="flex items-center space-x-2 text-slate-500 text-xs"><Truck className="w-3.5 h-3.5" /><span>{bid.vehicleType}</span></div>
+                          <div className="flex items-center space-x-2 text-slate-500 text-xs"><BarChart3 className="w-3.5 h-3.5" /><span>{(bid.offers || []).length} offers</span></div>
+                        </div>
+                        {lifecycle === "In Process" && (
+                          <div className="flex items-center justify-between bg-rose-50 border border-rose-100 rounded-xl px-3 py-2 animate-pulse">
+                            <div className="flex items-center space-x-2 text-rose-600"><Timer className="w-4 h-4" /><span className="text-xs font-black tracking-tighter">{timer}</span></div>
+                            {(bid.offers || []).length > 0 && <span className="text-xs font-bold text-rose-800">L1: ₹{bid.offers[0].amount.toLocaleString()}</span>}
+                          </div>
+                        )}
+                        {lifecycle === "Completed" && (bid.offers || []).length > 0 && (
+                          <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+                            <div className="flex items-center space-x-2 text-emerald-600"><CheckCircle2 className="w-4 h-4" /><span className="text-[10px] font-bold uppercase">Auction Ended</span></div>
+                            <span className="text-xs font-bold text-emerald-800">Final: ₹{bid.offers[0].amount.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {lifecycle === "Not Started Yet" && (
+                          <div className="flex items-center space-x-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-slate-500"><Clock className="w-4 h-4" /><span className="text-[10px] font-bold uppercase">Starts: {new Date(bid.bidStartDate).toLocaleDateString()}</span></div>
+                        )}
                       </div>
-                      <div className="grid grid-cols-2 gap-3 mb-4">
-                        <div className="flex items-center space-x-2 text-slate-500 text-xs"><Truck className="w-3.5 h-3.5" /><span>{bid.vehicleType}</span></div>
-                        <div className="flex items-center space-x-2 text-slate-500 text-xs"><BarChart3 className="w-3.5 h-3.5" /><span>{(bid.offers || []).length} offers</span></div>
-                      </div>
-                      {lifecycle === "In Process" && (
-                        <div className="flex items-center justify-between bg-rose-50 border border-rose-100 rounded-xl px-3 py-2 animate-pulse">
-                          <div className="flex items-center space-x-2 text-rose-600"><Timer className="w-4 h-4" /><span className="text-xs font-black tracking-tighter">{timer}</span></div>
-                          {(bid.offers || []).length > 0 && <span className="text-xs font-bold text-rose-800">L1: ₹{bid.offers[0].amount.toLocaleString()}</span>}
-                        </div>
-                      )}
-                      {lifecycle === "Completed" && (bid.offers || []).length > 0 && (
-                        <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
-                          <div className="flex items-center space-x-2 text-emerald-600"><CheckCircle2 className="w-4 h-4" /><span className="text-[10px] font-bold uppercase">Auction Ended</span></div>
-                          <span className="text-xs font-bold text-emerald-800">Final: ₹{bid.offers[0].amount.toLocaleString()}</span>
-                        </div>
-                      )}
-                      {lifecycle === "Not Started Yet" && (
-                        <div className="flex items-center space-x-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-slate-500"><Clock className="w-4 h-4" /><span className="text-[10px] font-bold uppercase">Starts: {new Date(bid.bidStartDate).toLocaleDateString()}</span></div>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                ) : (
+                  <div className="col-span-full bg-white border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center">
+                    <Filter className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                    <h4 className="font-bold text-slate-600 mb-2">No bids found</h4>
+                    <p className="text-sm text-slate-500 mb-4">No bids match the current filter criteria.</p>
+                    <button
+                      onClick={() => setBidFilter('all')}
+                      className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                    >
+                      Clear filter and show all bids
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -539,10 +722,107 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="bg-white border-2 border-dashed border-slate-200 rounded-3xl p-12 text-center text-slate-400 sticky top-24">
-                  <InfinityIcon className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                  <h5 className="font-bold text-slate-500 mb-1">No Selection</h5>
-                  <p className="text-xs leading-relaxed max-w-[200px] mx-auto opacity-60">Pick an active or past auction to view high-level parameters and rankings.</p>
+                <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden sticky top-24 shadow-sm">
+                  {/* Completed Bids Header */}
+                  <div className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white p-6">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <CheckCircle2 className="w-6 h-6" />
+                      <h3 className="text-lg font-bold">Completed Auctions</h3>
+                    </div>
+                    <p className="text-emerald-100 text-sm">Recently finalized bids and their outcomes</p>
+                  </div>
+                  
+                  <div className="p-4 max-h-[calc(100vh-300px)] overflow-y-auto">
+                    {(() => {
+                      const completedBids = bids?.filter(b => getBidLifecycleStatus(b) === "Completed") || [];
+                      
+                      if (completedBids.length === 0) {
+                        return (
+                          <div className="text-center py-12">
+                            <CheckCircle2 className="w-12 h-12 mx-auto mb-4 text-slate-200" />
+                            <h5 className="font-bold text-slate-500 mb-1">No Completed Bids</h5>
+                            <p className="text-xs text-slate-400 max-w-[200px] mx-auto">Completed auctions will appear here once bids are finalized.</p>
+                          </div>
+                        );
+                      }
+                      
+                      return (
+                        <div className="space-y-3">
+                          {completedBids.slice(0, 10).map((bid) => {
+                            const winningOffer = bid.offers?.[0];
+                            const hasVehicleDetails = bid.vehicleNumber || bid.driverName;
+                            
+                            return (
+                              <div 
+                                key={bid.id}
+                                onClick={() => setSelectedBid(bid)}
+                                className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl p-4 cursor-pointer transition-all group"
+                              >
+                                {/* Route */}
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center space-x-2">
+                                    <MapPin className="w-4 h-4 text-emerald-500" />
+                                    <span className="text-sm font-bold text-slate-800">{bid.origin}</span>
+                                    <ArrowRight className="w-3 h-3 text-slate-400" />
+                                    <span className="text-sm font-bold text-slate-800">{bid.destination}</span>
+                                  </div>
+                                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />
+                                </div>
+                                
+                                {/* Bid ID and Lane */}
+                                <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-3">
+                                  {bid.id?.slice(-12)} • {bid.lane}
+                                </p>
+                                
+                                {/* Winner and Amount */}
+                                {winningOffer && (
+                                  <div className="flex items-center justify-between bg-white rounded-lg p-2 border border-slate-200 mb-2">
+                                    <div className="flex items-center space-x-2">
+                                      <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
+                                        <CheckCircle2 className="w-3 h-3 text-white" />
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] text-slate-400 uppercase font-bold">Winner</p>
+                                        <p className="text-xs font-bold text-slate-800">{winningOffer.vendorName}</p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-[10px] text-slate-400 uppercase font-bold">Final Amount</p>
+                                      <p className="text-sm font-black text-emerald-600">₹{winningOffer.amount.toLocaleString()}</p>
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {/* Vehicle Assignment Status */}
+                                <div className={`flex items-center space-x-2 text-[10px] font-bold uppercase ${hasVehicleDetails ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                  {hasVehicleDetails ? (
+                                    <>
+                                      <Truck className="w-3 h-3" />
+                                      <span>Vehicle Assigned: {bid.vehicleNumber}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <AlertCircle className="w-3 h-3" />
+                                      <span>Awaiting Vehicle Details</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          
+                          {completedBids.length > 10 && (
+                            <button 
+                              onClick={() => setBidFilter('completed')}
+                              className="w-full text-center py-3 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                            >
+                              View all {completedBids.length} completed bids →
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               )}
             </div>
